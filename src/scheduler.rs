@@ -1,6 +1,6 @@
 use crate::config::AppConfig;
-use crate::executor::execute_job;
-use crate::workspace::{JobScheduleState, RunStatus, SchedulerState, Workspace};
+use crate::executor::execute_task;
+use crate::workspace::{TaskScheduleState, RunStatus, SchedulerState, Workspace};
 use chrono::Utc;
 use cron::Schedule;
 use std::collections::HashSet;
@@ -10,14 +10,14 @@ use std::thread;
 use std::time::Duration;
 
 pub enum SchedulerCommand {
-    RunJob(String),
+    RunTask(String),
     UpdateConfig(AppConfig),
     Shutdown,
 }
 
 pub enum SchedulerEvent {
-    JobStarted(String),
-    JobFinished(String, RunStatus),
+    TaskStarted(String),
+    TaskFinished(String, RunStatus),
 }
 
 pub struct SchedulerHandle {
@@ -56,13 +56,13 @@ fn scheduler_loop(
     let mut state = workspace.load_state();
     let running: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
 
-    // Initialize next_run for all jobs
-    for job in &config.jobs {
-        if !state.jobs.contains_key(&job.name) {
-            if let Some(schedule) = parse_cron(&job.cron) {
-                state.jobs.insert(
-                    job.name.clone(),
-                    JobScheduleState {
+    // Initialize next_run for all tasks
+    for task in &config.tasks {
+        if !state.tasks.contains_key(&task.name) {
+            if let Some(schedule) = parse_cron(&task.cron) {
+                state.tasks.insert(
+                    task.name.clone(),
+                    TaskScheduleState {
                         last_run: None,
                         next_run: schedule.upcoming(Utc).next(),
                         last_status: None,
@@ -77,8 +77,8 @@ fn scheduler_loop(
         loop {
             match cmd_rx.try_recv() {
                 Ok(SchedulerCommand::Shutdown) => return,
-                Ok(SchedulerCommand::RunJob(name)) => {
-                    spawn_job(
+                Ok(SchedulerCommand::RunTask(name)) => {
+                    spawn_task(
                         &config,
                         &name,
                         &workspace,
@@ -89,13 +89,13 @@ fn scheduler_loop(
                 }
                 Ok(SchedulerCommand::UpdateConfig(new_config)) => {
                     config = new_config;
-                    for job in &config.jobs {
-                        if let Some(schedule) = parse_cron(&job.cron) {
+                    for task in &config.tasks {
+                        if let Some(schedule) = parse_cron(&task.cron) {
                             let entry =
                                 state
-                                    .jobs
-                                    .entry(job.name.clone())
-                                    .or_insert(JobScheduleState {
+                                    .tasks
+                                    .entry(task.name.clone())
+                                    .or_insert(TaskScheduleState {
                                         last_run: None,
                                         next_run: None,
                                         last_status: None,
@@ -111,32 +111,32 @@ fn scheduler_loop(
 
         // Check cron schedules
         let now = Utc::now();
-        let jobs_to_run: Vec<String> = config
-            .jobs
+        let tasks_to_run: Vec<String> = config
+            .tasks
             .iter()
-            .filter(|job| {
-                let is_running = running.lock().unwrap().contains(&job.name);
+            .filter(|task| {
+                let is_running = running.lock().unwrap().contains(&task.name);
                 if is_running {
                     return false;
                 }
                 state
-                    .jobs
-                    .get(&job.name)
+                    .tasks
+                    .get(&task.name)
                     .and_then(|s| s.next_run)
                     .map_or(false, |next| now >= next)
             })
-            .map(|j| j.name.clone())
+            .map(|t| t.name.clone())
             .collect();
 
-        for name in jobs_to_run {
-            spawn_job(&config, &name, &workspace, &evt_tx, &running, &mut state);
+        for name in tasks_to_run {
+            spawn_task(&config, &name, &workspace, &evt_tx, &running, &mut state);
         }
 
         thread::sleep(Duration::from_secs(1));
     }
 }
 
-fn spawn_job(
+fn spawn_task(
     config: &AppConfig,
     name: &str,
     workspace: &Arc<Workspace>,
@@ -144,8 +144,8 @@ fn spawn_job(
     running: &Arc<Mutex<HashSet<String>>>,
     state: &mut SchedulerState,
 ) {
-    let job = match config.jobs.iter().find(|j| j.name == name) {
-        Some(j) => j.clone(),
+    let task = match config.tasks.iter().find(|t| t.name == name) {
+        Some(t) => t.clone(),
         None => return,
     };
 
@@ -158,43 +158,43 @@ fn spawn_job(
     }
 
     // Update state
-    if let Some(job_state) = state.jobs.get_mut(name) {
-        job_state.last_run = Some(Utc::now());
-        if let Some(schedule) = parse_cron(&job.cron) {
-            job_state.next_run = schedule.upcoming(Utc).next();
+    if let Some(task_state) = state.tasks.get_mut(name) {
+        task_state.last_run = Some(Utc::now());
+        if let Some(schedule) = parse_cron(&task.cron) {
+            task_state.next_run = schedule.upcoming(Utc).next();
         }
     }
     let _ = workspace.save_state(state);
 
-    let _ = evt_tx.send(SchedulerEvent::JobStarted(name.to_string()));
+    let _ = evt_tx.send(SchedulerEvent::TaskStarted(name.to_string()));
 
     let ws = Arc::clone(workspace);
     let evt = evt_tx.clone();
     let running_set = Arc::clone(running);
-    let job_name = name.to_string();
+    let task_name = name.to_string();
     let notify_cfg = config.notifications.clone();
 
     thread::spawn(move || {
-        let run = execute_job(&job, &ws);
+        let run = execute_task(&task, &ws);
         let status = run.status.clone();
 
         // OS notification on failure
         if (status == RunStatus::Failed || status == RunStatus::Timeout)
             && notify_cfg.enabled
-            && job.notify_on_failure
+            && task.notify_on_failure
         {
-            send_failure_notification(&job.name, &run.stderr);
+            send_failure_notification(&task.name, &run.stderr);
         }
 
-        let _ = evt.send(SchedulerEvent::JobFinished(job_name.clone(), status));
-        running_set.lock().unwrap().remove(&job_name);
+        let _ = evt.send(SchedulerEvent::TaskFinished(task_name.clone(), status));
+        running_set.lock().unwrap().remove(&task_name);
     });
 }
 
-fn send_failure_notification(job_name: &str, error: &str) {
+fn send_failure_notification(task_name: &str, error: &str) {
     let error_preview: String = error.chars().take(200).collect();
     let _ = notify_rust::Notification::new()
-        .summary(&format!("TaskPilot: {} failed", job_name))
+        .summary(&format!("TaskPilot: {} failed", task_name))
         .body(&error_preview)
         .timeout(notify_rust::Timeout::Milliseconds(10000))
         .show();

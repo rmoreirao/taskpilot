@@ -16,7 +16,7 @@ pub fn render(app: &mut TaskPilotApp, ctx: &egui::Context) {
             ui.add_space(8.0);
 
             let nav_items = [
-                ("📊  Dashboard", View::Dashboard),
+                ("📊  Tasks", View::Tasks),
                 ("⚙\u{fe0f}  Settings", View::Settings),
             ];
 
@@ -45,7 +45,7 @@ pub fn render(app: &mut TaskPilotApp, ctx: &egui::Context) {
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new("● Engine running").small().color(GREEN));
                 ui.label(
-                    egui::RichText::new(format!("{} jobs configured", app.config.jobs.len()))
+                    egui::RichText::new(format!("{} tasks configured", app.config.tasks.len()))
                         .small()
                         .color(MUTED),
                 );

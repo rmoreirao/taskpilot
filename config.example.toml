@@ -9,14 +9,14 @@ on_failure = true
 on_recovery = true
 sound = false
 
-[[jobs]]
+[[tasks]]
 name = "example-hello"
 command = "echo Hello from TaskPilot!"
 cron = "*/5 * * * *"
 timeout = "30s"
 notify_on_failure = true
 
-[[jobs]]
+[[tasks]]
 name = "example-date"
 command = "date /t"
 cron = "*/2 * * * *"

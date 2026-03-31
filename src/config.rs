@@ -8,7 +8,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub notifications: NotificationConfig,
     #[serde(default)]
-    pub jobs: Vec<JobConfig>,
+    pub tasks: Vec<TaskConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,7 +66,7 @@ impl Default for NotificationConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JobConfig {
+pub struct TaskConfig {
     pub name: String,
     pub command: String,
     pub cron: String,
@@ -91,8 +91,8 @@ impl AppConfig {
         Self {
             general: GeneralConfig::default(),
             notifications: NotificationConfig::default(),
-            jobs: vec![
-                JobConfig {
+            tasks: vec![
+                TaskConfig {
                     name: "example-hello".to_string(),
                     command: "echo Hello from TaskPilot!".to_string(),
                     cron: "*/5 * * * *".to_string(),
@@ -101,7 +101,7 @@ impl AppConfig {
                     notify_on_failure: true,
                     retries: None,
                 },
-                JobConfig {
+                TaskConfig {
                     name: "example-date".to_string(),
                     command: "date /t".to_string(),
                     cron: "*/2 * * * *".to_string(),

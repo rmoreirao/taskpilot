@@ -1,5 +1,5 @@
 mod dashboard;
-mod job_detail;
+mod task_detail;
 mod settings;
 mod sidebar;
 
@@ -18,8 +18,8 @@ pub fn render(app: &mut TaskPilotApp, ctx: &egui::Context) {
     let view = app.current_view.clone();
     egui::CentralPanel::default().show(ctx, |ui| {
         egui::ScrollArea::vertical().show(ui, |ui| match view {
-            View::Dashboard => dashboard::render(app, ui),
-            View::JobDetail(ref name) => job_detail::render(app, ui, name),
+            View::Tasks => dashboard::render(app, ui),
+            View::TaskDetail(ref name) => task_detail::render(app, ui, name),
             View::Settings => settings::render_settings(app, ui),
             View::Notifications => settings::render_notifications(app, ui),
         });

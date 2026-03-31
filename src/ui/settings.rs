@@ -100,11 +100,11 @@ pub fn render_settings(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
 pub fn render_notifications(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
     ui.heading("Notifications");
     ui.add_space(4.0);
-    ui.label(egui::RichText::new("Recent alerts and job status changes").color(MUTED));
+    ui.label(egui::RichText::new("Recent alerts and task status changes").color(MUTED));
     ui.add_space(12.0);
 
     if app.notifications.is_empty() {
-        ui.label(egui::RichText::new("No notifications yet. Run some jobs to see activity here.").color(MUTED));
+        ui.label(egui::RichText::new("No notifications yet. Run some tasks to see activity here.").color(MUTED));
         return;
     }
 

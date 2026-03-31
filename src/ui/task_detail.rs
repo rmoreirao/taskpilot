@@ -3,25 +3,25 @@ use crate::app::{TaskPilotApp, View};
 use crate::workspace::RunStatus;
 use eframe::egui;
 
-pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, job_name: &str) {
+pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
     // Back button
-    if ui.button("← Back to Dashboard").clicked() {
-        app.current_view = View::Dashboard;
+    if ui.button("← Back to Tasks").clicked() {
+        app.current_view = View::Tasks;
         return;
     }
 
     ui.add_space(8.0);
-    ui.heading(job_name);
+    ui.heading(task_name);
 
-    // Find job config
-    let job_config = app.config.jobs.iter().find(|j| j.name == job_name).cloned();
+    // Find task config
+    let task_config = app.config.tasks.iter().find(|t| t.name == task_name).cloned();
 
-    if let Some(config) = &job_config {
+    if let Some(config) = &task_config {
         ui.label(egui::RichText::new(&config.command).monospace().color(MUTED));
         ui.add_space(12.0);
 
         // Metadata cards
-        let runs = &app.selected_job_runs;
+        let runs = &app.selected_task_runs;
         let total_runs = runs.len();
         let passed_runs = runs.iter().filter(|r| r.status == RunStatus::Passed).count();
         let success_rate = if total_runs > 0 {
@@ -81,9 +81,9 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, job_name: &str) {
     ui.add_space(12.0);
 
     // Run Now button
-    let job_name_owned = job_name.to_string();
+    let task_name_owned = task_name.to_string();
     if ui.button("▶ Run Now").clicked() {
-        app.trigger_job(&job_name_owned);
+        app.trigger_task(&task_name_owned);
     }
 
     ui.add_space(12.0);
@@ -93,13 +93,13 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, job_name: &str) {
     ui.strong("Execution History");
     ui.add_space(8.0);
 
-    if app.selected_job_runs.is_empty() {
+    if app.selected_task_runs.is_empty() {
         ui.label(egui::RichText::new("No runs recorded yet.").color(MUTED));
         return;
     }
 
     // Timeline of runs
-    let runs = app.selected_job_runs.clone();
+    let runs = app.selected_task_runs.clone();
     for run in &runs {
         let (icon, color) = match run.status {
             RunStatus::Passed => ("✓", GREEN),

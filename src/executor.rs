@@ -1,5 +1,5 @@
-use crate::config::JobConfig;
-use crate::workspace::{JobRun, RunStatus, Workspace};
+use crate::config::TaskConfig;
+use crate::workspace::{TaskRun, RunStatus, Workspace};
 use chrono::Utc;
 use std::io::Read;
 use std::process::Command;
@@ -18,21 +18,21 @@ pub fn parse_duration(s: &str) -> Option<Duration> {
     }
 }
 
-pub fn execute_job(job: &JobConfig, workspace: &Workspace) -> JobRun {
+pub fn execute_task(task: &TaskConfig, workspace: &Workspace) -> TaskRun {
     let started_at = Utc::now();
     let start_instant = Instant::now();
-    let timeout = job.timeout.as_ref().and_then(|t| parse_duration(t));
-    let retries = job.retries.unwrap_or(0);
+    let timeout = task.timeout.as_ref().and_then(|t| parse_duration(t));
+    let retries = task.retries.unwrap_or(0);
 
     let mut last_run = None;
 
     for attempt in 0..=retries {
-        let result = run_command(&job.command, job.working_dir.as_deref(), timeout);
+        let result = run_command(&task.command, task.working_dir.as_deref(), timeout);
         let elapsed = start_instant.elapsed();
         let finished_at = Utc::now();
 
-        let run = JobRun {
-            job_name: job.name.clone(),
+        let run = TaskRun {
+            task_name: task.name.clone(),
             status: result.status,
             exit_code: result.exit_code,
             stdout: result.stdout,

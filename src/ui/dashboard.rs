@@ -4,35 +4,35 @@ use crate::workspace::RunStatus;
 use eframe::egui;
 
 pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
-    ui.heading("Dashboard");
+    ui.heading("Tasks");
     ui.add_space(4.0);
-    ui.label(egui::RichText::new("Overview of all scheduled jobs").color(MUTED));
+    ui.label(egui::RichText::new("Overview of all scheduled tasks").color(MUTED));
     ui.add_space(12.0);
 
     // Stats cards
-    let total = app.job_statuses.len();
+    let total = app.task_statuses.len();
     let passed = app
-        .job_statuses
+        .task_statuses
         .iter()
-        .filter(|j| {
-            j.last_run
+        .filter(|t| {
+            t.last_run
                 .as_ref()
                 .map_or(false, |r| r.status == RunStatus::Passed)
         })
         .count();
     let failed = app
-        .job_statuses
+        .task_statuses
         .iter()
-        .filter(|j| {
-            j.last_run.as_ref().map_or(false, |r| {
+        .filter(|t| {
+            t.last_run.as_ref().map_or(false, |r| {
                 r.status == RunStatus::Failed || r.status == RunStatus::Timeout
             })
         })
         .count();
-    let running = app.running_jobs.len();
+    let running = app.running_tasks.len();
 
     ui.horizontal(|ui| {
-        stat_card(ui, "Total Jobs", total, egui::Color32::WHITE);
+        stat_card(ui, "Total Tasks", total, egui::Color32::WHITE);
         stat_card(ui, "Passed", passed, GREEN);
         stat_card(ui, "Failed", failed, RED);
         stat_card(ui, "Running", running, BLUE);
@@ -43,32 +43,32 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
     // Search filter
     ui.horizontal(|ui| {
         ui.label("🔍");
-        ui.add(egui::TextEdit::singleline(&mut app.search_filter).hint_text("Filter jobs..."));
+        ui.add(egui::TextEdit::singleline(&mut app.search_filter).hint_text("Filter tasks..."));
     });
 
     ui.add_space(8.0);
     ui.separator();
     ui.add_space(8.0);
 
-    // Job table
+    // Task table
     let filter = app.search_filter.to_lowercase();
-    let jobs: Vec<_> = app
-        .job_statuses
+    let tasks: Vec<_> = app
+        .task_statuses
         .iter()
-        .filter(|j| filter.is_empty() || j.name.to_lowercase().contains(&filter))
+        .filter(|t| filter.is_empty() || t.name.to_lowercase().contains(&filter))
         .cloned()
         .collect();
 
-    let mut trigger_job = None;
-    let mut view_job = None;
+    let mut trigger_task = None;
+    let mut view_task = None;
 
-    egui::Grid::new("job_table")
+    egui::Grid::new("task_table")
         .striped(true)
         .min_col_width(60.0)
         .spacing([16.0, 8.0])
         .show(ui, |ui| {
             // Header
-            ui.strong("Job Name");
+            ui.strong("Task Name");
             ui.strong("Schedule");
             ui.strong("Last Run");
             ui.strong("Status");
@@ -76,17 +76,17 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
             ui.strong("Actions");
             ui.end_row();
 
-            for job in &jobs {
+            for task in &tasks {
                 // Name (clickable link)
-                if ui.link(&job.name).clicked() {
-                    view_job = Some(job.name.clone());
+                if ui.link(&task.name).clicked() {
+                    view_task = Some(task.name.clone());
                 }
 
                 // Cron schedule
-                ui.label(egui::RichText::new(&job.cron).monospace().color(BLUE));
+                ui.label(egui::RichText::new(&task.cron).monospace().color(BLUE));
 
                 // Last run time
-                if let Some(run) = &job.last_run {
+                if let Some(run) = &task.last_run {
                     ui.label(
                         egui::RichText::new(run.started_at.format("%H:%M:%S").to_string())
                             .color(MUTED),
@@ -96,9 +96,9 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
                 }
 
                 // Status
-                if job.is_running {
+                if task.is_running {
                     ui.label(egui::RichText::new("● Running").color(BLUE));
-                } else if let Some(run) = &job.last_run {
+                } else if let Some(run) = &task.last_run {
                     match run.status {
                         RunStatus::Passed => {
                             ui.label(egui::RichText::new("✓ Passed").color(GREEN));
@@ -118,7 +118,7 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
                 }
 
                 // Duration
-                if let Some(run) = &job.last_run {
+                if let Some(run) = &task.last_run {
                     if let Some(ms) = run.duration_ms {
                         let secs = ms as f64 / 1000.0;
                         ui.label(
@@ -134,10 +134,10 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
                 }
 
                 // Actions
-                if job.is_running {
+                if task.is_running {
                     ui.label(egui::RichText::new("⏳ Running...").color(MUTED));
                 } else if ui.button("▶ Run").clicked() {
-                    trigger_job = Some(job.name.clone());
+                    trigger_task = Some(task.name.clone());
                 }
 
                 ui.end_row();
@@ -145,12 +145,12 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
         });
 
     // Apply actions after rendering
-    if let Some(name) = trigger_job {
-        app.trigger_job(&name);
+    if let Some(name) = trigger_task {
+        app.trigger_task(&name);
     }
-    if let Some(name) = view_job {
-        app.selected_job_runs = app.workspace.load_runs(&name, 50);
-        app.current_view = View::JobDetail(name);
+    if let Some(name) = view_task {
+        app.selected_task_runs = app.workspace.load_runs(&name, 50);
+        app.current_view = View::TaskDetail(name);
     }
 }
 

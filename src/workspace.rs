@@ -12,8 +12,8 @@ pub enum RunStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JobRun {
-    pub job_name: String,
+pub struct TaskRun {
+    pub task_name: String,
     pub status: RunStatus,
     pub exit_code: Option<i32>,
     pub stdout: String,
@@ -25,11 +25,11 @@ pub struct JobRun {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SchedulerState {
-    pub jobs: std::collections::HashMap<String, JobScheduleState>,
+    pub tasks: std::collections::HashMap<String, TaskScheduleState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JobScheduleState {
+pub struct TaskScheduleState {
     pub last_run: Option<DateTime<Utc>>,
     pub next_run: Option<DateTime<Utc>>,
     pub last_status: Option<RunStatus>,
@@ -61,14 +61,14 @@ impl Workspace {
         self.root.join("runs")
     }
 
-    pub fn job_runs_dir(&self, job_name: &str) -> PathBuf {
-        self.runs_dir().join(sanitize_filename(job_name))
+    pub fn task_runs_dir(&self, task_name: &str) -> PathBuf {
+        self.runs_dir().join(sanitize_filename(task_name))
     }
 
-    pub fn save_run(&self, run: &JobRun) -> Result<PathBuf, String> {
-        let dir = self.job_runs_dir(&run.job_name);
+    pub fn save_run(&self, run: &TaskRun) -> Result<PathBuf, String> {
+        let dir = self.task_runs_dir(&run.task_name);
         std::fs::create_dir_all(&dir)
-            .map_err(|e| format!("Failed to create job runs dir: {}", e))?;
+            .map_err(|e| format!("Failed to create task runs dir: {}", e))?;
 
         let filename = run.started_at.format("%Y-%m-%dT%H%M%S.json").to_string();
         let path = dir.join(&filename);
@@ -80,8 +80,8 @@ impl Workspace {
         Ok(path)
     }
 
-    pub fn load_runs(&self, job_name: &str, limit: usize) -> Vec<JobRun> {
-        let dir = self.job_runs_dir(job_name);
+    pub fn load_runs(&self, task_name: &str, limit: usize) -> Vec<TaskRun> {
+        let dir = self.task_runs_dir(task_name);
         if !dir.exists() {
             return Vec::new();
         }
@@ -109,8 +109,8 @@ impl Workspace {
             .collect()
     }
 
-    pub fn get_latest_run(&self, job_name: &str) -> Option<JobRun> {
-        self.load_runs(job_name, 1).into_iter().next()
+    pub fn get_latest_run(&self, task_name: &str) -> Option<TaskRun> {
+        self.load_runs(task_name, 1).into_iter().next()
     }
 
     pub fn load_state(&self) -> SchedulerState {

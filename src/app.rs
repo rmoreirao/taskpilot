@@ -1,7 +1,7 @@
 use crate::config::AppConfig;
 use crate::scheduler::{SchedulerCommand, SchedulerEvent, SchedulerHandle, start_scheduler};
 use crate::tray::{TrayEvent, TrayManager};
-use crate::workspace::{JobRun, RunStatus, Workspace};
+use crate::workspace::{TaskRun, RunStatus, Workspace};
 use eframe::egui;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -9,24 +9,24 @@ use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum View {
-    Dashboard,
-    JobDetail(String),
+    Tasks,
+    TaskDetail(String),
     Settings,
     Notifications,
 }
 
 #[derive(Clone)]
-pub struct JobStatus {
+pub struct TaskStatus {
     pub name: String,
     pub command: String,
     pub cron: String,
-    pub last_run: Option<JobRun>,
+    pub last_run: Option<TaskRun>,
     pub is_running: bool,
 }
 
 #[derive(Clone)]
 pub struct NotificationItem {
-    pub job_name: String,
+    pub task_name: String,
     pub message: String,
     pub status: RunStatus,
     pub time: chrono::DateTime<chrono::Utc>,
@@ -38,9 +38,9 @@ pub struct TaskPilotApp {
     pub(crate) config_content: String,
     scheduler: SchedulerHandle,
     pub(crate) current_view: View,
-    pub(crate) job_statuses: Vec<JobStatus>,
-    pub(crate) running_jobs: HashSet<String>,
-    pub(crate) selected_job_runs: Vec<JobRun>,
+    pub(crate) task_statuses: Vec<TaskStatus>,
+    pub(crate) running_tasks: HashSet<String>,
+    pub(crate) selected_task_runs: Vec<TaskRun>,
     last_refresh: Instant,
     pub(crate) notifications: Vec<NotificationItem>,
     pub(crate) search_filter: String,
@@ -58,33 +58,33 @@ impl TaskPilotApp {
             config,
             config_content,
             scheduler,
-            current_view: View::Dashboard,
-            job_statuses: Vec::new(),
-            running_jobs: HashSet::new(),
-            selected_job_runs: Vec::new(),
+            current_view: View::Tasks,
+            task_statuses: Vec::new(),
+            running_tasks: HashSet::new(),
+            selected_task_runs: Vec::new(),
             last_refresh: Instant::now(),
             notifications: Vec::new(),
             search_filter: String::new(),
             tray,
             should_quit: false,
         };
-        app.refresh_job_statuses();
+        app.refresh_task_statuses();
         app
     }
 
-    pub(crate) fn refresh_job_statuses(&mut self) {
-        self.job_statuses = self
+    pub(crate) fn refresh_task_statuses(&mut self) {
+        self.task_statuses = self
             .config
-            .jobs
+            .tasks
             .iter()
-            .map(|job| {
-                let last_run = self.workspace.get_latest_run(&job.name);
-                JobStatus {
-                    name: job.name.clone(),
-                    command: job.command.clone(),
-                    cron: job.cron.clone(),
+            .map(|task| {
+                let last_run = self.workspace.get_latest_run(&task.name);
+                TaskStatus {
+                    name: task.name.clone(),
+                    command: task.command.clone(),
+                    cron: task.cron.clone(),
                     last_run,
-                    is_running: self.running_jobs.contains(&job.name),
+                    is_running: self.running_tasks.contains(&task.name),
                 }
             })
             .collect();
@@ -93,11 +93,11 @@ impl TaskPilotApp {
     fn process_events(&mut self) {
         while let Ok(evt) = self.scheduler.evt_rx.try_recv() {
             match evt {
-                SchedulerEvent::JobStarted(name) => {
-                    self.running_jobs.insert(name);
+                SchedulerEvent::TaskStarted(name) => {
+                    self.running_tasks.insert(name);
                 }
-                SchedulerEvent::JobFinished(name, status) => {
-                    self.running_jobs.remove(&name);
+                SchedulerEvent::TaskFinished(name, status) => {
+                    self.running_tasks.remove(&name);
                     let status_text = match &status {
                         RunStatus::Passed => "passed",
                         RunStatus::Failed => "failed",
@@ -108,7 +108,7 @@ impl TaskPilotApp {
                         0,
                         NotificationItem {
                             message: format!("{} {}", name, status_text),
-                            job_name: name,
+                            task_name: name,
                             status,
                             time: chrono::Utc::now(),
                         },
@@ -119,11 +119,11 @@ impl TaskPilotApp {
         }
     }
 
-    pub(crate) fn trigger_job(&self, name: &str) {
+    pub(crate) fn trigger_task(&self, name: &str) {
         let _ = self
             .scheduler
             .cmd_tx
-            .send(SchedulerCommand::RunJob(name.to_string()));
+            .send(SchedulerCommand::RunTask(name.to_string()));
     }
 
     pub(crate) fn reload_config(&mut self) {
@@ -185,9 +185,9 @@ impl eframe::App for TaskPilotApp {
 
         // Auto-refresh from disk every 2 seconds
         if self.last_refresh.elapsed().as_secs() >= 2 {
-            self.refresh_job_statuses();
-            if let View::JobDetail(ref name) = self.current_view {
-                self.selected_job_runs = self.workspace.load_runs(name, 50);
+            self.refresh_task_statuses();
+            if let View::TaskDetail(ref name) = self.current_view {
+                self.selected_task_runs = self.workspace.load_runs(name, 50);
             }
             self.last_refresh = Instant::now();
         }
