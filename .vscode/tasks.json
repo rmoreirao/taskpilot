@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "options": {
+    "env": {
+      "PATH": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64;${env:PATH}",
+      "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\MSVC\\14.50.35717\\lib\\onecore\\x64;C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\SDK\\ScopeCppSDK\\vc15\\SDK\\lib",
+      "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\SDK\\ScopeCppSDK\\vc15\\SDK\\include;C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\SDK\\ScopeCppSDK\\vc15\\VC\\include"
+    }
+  },
+  "tasks": [
+    {
+      "label": "cargo build",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["build"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$rustc"],
+      "presentation": {
+        "reveal": "silent",
+        "clear": true
+      }
+    },
+    {
+      "label": "cargo build (release)",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["build", "--release"],
+      "group": "build",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "cargo check",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["check"],
+      "group": "build",
+      "problemMatcher": ["$rustc"],
+      "presentation": {
+        "reveal": "silent",
+        "clear": true
+      }
+    }
+  ]
+}
