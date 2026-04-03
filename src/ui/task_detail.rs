@@ -18,6 +18,24 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
 
     if let Some(config) = &task_config {
         ui.label(egui::RichText::new(&config.command).monospace().color(MUTED));
+
+        // Show source info for external tasks
+        if let Some(info) = app.source_metadata.get(task_name) {
+            if info.is_external() {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "📁 External source: {}",
+                            info.file_path.display()
+                        ))
+                        .small()
+                        .color(YELLOW),
+                    );
+                });
+            }
+        }
+
         ui.add_space(12.0);
 
         // Metadata cards

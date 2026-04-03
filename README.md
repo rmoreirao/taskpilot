@@ -58,7 +58,7 @@ See [Building from Source](#building-from-source) below.
 4. Add your first task:
 
 ```toml
-[[tasks]]
+[[task]]
 name = "my-backup"
 command = "robocopy C:\Data D:\Backup /MIR"
 cron = "0 2 * * *"        # runs every day at 2:00 AM
@@ -82,6 +82,7 @@ A fully annotated example is provided in [`config.example.toml`](config.example.
 | `log_level` | `"info"` | Log verbosity: `"debug"`, `"info"`, `"warn"`, `"error"` |
 | `max_log_retention_days` | `30` | Days to keep task run logs before pruning |
 | `start_with_windows` | `false` | Register TaskPilot to launch automatically at login |
+| `task_sources` | `[]` | List of external directories containing `.toml` task definitions |
 
 ### `[notifications]`
 
@@ -92,9 +93,9 @@ A fully annotated example is provided in [`config.example.toml`](config.example.
 | `on_recovery` | `true` | Notify when a previously-failed task succeeds again |
 | `sound` | `false` | Play a sound with notifications |
 
-### `[[tasks]]`
+### `[[task]]`
 
-Each task is a `[[tasks]]` table entry. You can define as many as you like.
+Each task is a `[[task]]` table entry. You can define as many as you like.
 
 | Field | Required | Description |
 |---|---|---|
@@ -116,6 +117,50 @@ Each task is a `[[tasks]]` table entry. You can define as many as you like.
 | `30 2 * * *` | 2:30 AM every day |
 | `0 0 1 * *` | Midnight on the 1st of every month |
 
+### External Task Sources
+
+TaskPilot can load tasks from external directories in addition to the local `config.toml`. This is useful for shared team task libraries, centrally managed definitions, or separating task definitions across repos.
+
+External directories are scanned for `.toml` files. Each file can use either format:
+
+**Multi-task format** (same as `config.toml`):
+
+```toml
+[[task]]
+name = "team-backup"
+command = "robocopy C:\Shared D:\Backup /MIR"
+cron = "0 3 * * *"
+
+[[task]]
+name = "team-cleanup"
+command = "del /q C:\Temp\*.tmp"
+cron = "0 4 * * *"
+```
+
+**Single-task format** (one task per file):
+
+```toml
+name = "nightly-report"
+command = "python generate_report.py"
+cron = "0 23 * * 1-5"
+timeout = "10m"
+```
+
+**Specifying sources** — use `task_sources` in config and/or `--task-dir` on the command line:
+
+```toml
+[general]
+task_sources = ["C:\\SharedTasks", "D:\\team-tasks"]
+```
+
+```bat
+taskpilot.exe --task-dir C:\SharedTasks --task-dir D:\team-tasks
+```
+
+CLI and config sources are merged (duplicates removed). If any task name appears in more than one source, TaskPilot reports an error.
+
+External directories are **watched for changes** — when `.toml` files are added, modified, or deleted, tasks are automatically reloaded. External tasks are shown in the dashboard with a 📁 source badge and are read-only.
+
 ---
 
 ## Usage
@@ -135,6 +180,14 @@ taskpilot.exe --minimized
 ```
 
 Starts without showing the window — useful when auto-starting with Windows.
+
+### Load tasks from external directories
+
+```bat
+taskpilot.exe --task-dir C:\SharedTasks --task-dir D:\team-tasks
+```
+
+Loads additional task definitions from the specified directories. Can be combined with `--minimized`. See [External Task Sources](#external-task-sources) for details.
 
 ### Tray icon
 

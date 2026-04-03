@@ -69,6 +69,7 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             // Header
             ui.strong("Task Name");
+            ui.strong("Source");
             ui.strong("Schedule");
             ui.strong("Last Run");
             ui.strong("Status");
@@ -80,6 +81,21 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
                 // Name (clickable link)
                 if ui.link(&task.name).clicked() {
                     view_task = Some(task.name.clone());
+                }
+
+                // Source badge
+                if let Some(info) = app.source_metadata.get(&task.name) {
+                    if info.is_external() {
+                        ui.label(
+                            egui::RichText::new(format!("📁 {}", info.source_label()))
+                                .small()
+                                .color(YELLOW),
+                        );
+                    } else {
+                        ui.label(egui::RichText::new("local").small().color(MUTED));
+                    }
+                } else {
+                    ui.label(egui::RichText::new("local").small().color(MUTED));
                 }
 
                 // Cron schedule

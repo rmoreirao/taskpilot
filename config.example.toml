@@ -3,20 +3,26 @@ log_level = "info"
 max_log_retention_days = 30
 start_with_windows = true
 
+# External task sources — directories containing .toml task definitions.
+# Each directory is scanned for .toml files that define tasks.
+# Files can use the same [[task]] array format as this config,
+# or a flat single-task format (name, command, cron fields at top level).
+# task_sources = ["C:\\SharedTasks", "D:\\team-tasks"]
+
 [notifications]
 enabled = true
 on_failure = true
 on_recovery = true
 sound = false
 
-[[tasks]]
+[[task]]
 name = "example-hello"
 command = "echo Hello from TaskPilot!"
 cron = "*/5 * * * *"
 timeout = "30s"
 notify_on_failure = true
 
-[[tasks]]
+[[task]]
 name = "example-date"
 command = "date /t"
 cron = "*/2 * * * *"

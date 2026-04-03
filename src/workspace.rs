@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -46,7 +48,9 @@ impl Workspace {
 
     pub fn ensure_dirs(&self) -> Result<(), String> {
         std::fs::create_dir_all(self.runs_dir())
-            .map_err(|e| format!("Failed to create runs dir: {}", e))
+            .map_err(|e| format!("Failed to create runs dir: {}", e))?;
+        std::fs::create_dir_all(self.debug_dir())
+            .map_err(|e| format!("Failed to create debug dir: {}", e))
     }
 
     pub fn config_path(&self) -> PathBuf {
@@ -59,6 +63,14 @@ impl Workspace {
 
     pub fn runs_dir(&self) -> PathBuf {
         self.root.join("runs")
+    }
+
+    pub fn debug_dir(&self) -> PathBuf {
+        self.root.join("debug")
+    }
+
+    pub fn debug_log_path(&self) -> PathBuf {
+        self.debug_dir().join("app.log")
     }
 
     pub fn task_runs_dir(&self, task_name: &str) -> PathBuf {
@@ -134,6 +146,33 @@ impl Workspace {
     pub fn config_content(&self) -> String {
         std::fs::read_to_string(self.config_path()).unwrap_or_default()
     }
+
+    pub fn append_debug_log(&self, component: &str, message: &str) -> Result<(), String> {
+        append_debug_log(&self.debug_log_path(), component, message)
+    }
+}
+
+pub fn append_debug_log(path: &Path, component: &str, message: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create debug log directory: {}", e))?;
+    }
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("Failed to open debug log: {}", e))?;
+
+    let line = format!(
+        "[{}] [{}] {}\n",
+        Utc::now().to_rfc3339(),
+        component,
+        message
+    );
+
+    file.write_all(line.as_bytes())
+        .map_err(|e| format!("Failed to write debug log: {}", e))
 }
 
 fn sanitize_filename(name: &str) -> String {

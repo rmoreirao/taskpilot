@@ -7,7 +7,7 @@ pub struct AppConfig {
     pub general: GeneralConfig,
     #[serde(default)]
     pub notifications: NotificationConfig,
-    #[serde(default)]
+    #[serde(default, rename = "task")]
     pub tasks: Vec<TaskConfig>,
 }
 
@@ -19,6 +19,8 @@ pub struct GeneralConfig {
     pub max_log_retention_days: u32,
     #[serde(default)]
     pub start_with_windows: bool,
+    #[serde(default)]
+    pub task_sources: Vec<String>,
 }
 
 fn default_log_level() -> String {
@@ -34,6 +36,7 @@ impl Default for GeneralConfig {
             log_level: default_log_level(),
             max_log_retention_days: default_max_retention(),
             start_with_windows: false,
+            task_sources: Vec::new(),
         }
     }
 }

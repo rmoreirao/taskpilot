@@ -1,6 +1,8 @@
+use crate::workspace::append_debug_log;
 use eframe::egui;
 use image::ImageReader;
 use std::io::Cursor;
+use std::path::PathBuf;
 use std::sync::mpsc;
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
@@ -19,8 +21,9 @@ pub struct TrayManager {
 }
 
 impl TrayManager {
-    pub fn new(ctx: egui::Context) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(ctx: egui::Context, log_path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let icon = Self::load_icon()?;
+        let _ = append_debug_log(&log_path, "tray", "Initializing tray manager");
 
         let quit_item = MenuItem::new("Quit", true, None);
         let quit_id = quit_item.id().clone();
@@ -39,38 +42,93 @@ impl TrayManager {
         // Listen for tray menu events (Quit) on a background thread
         let tx_menu = tx.clone();
         let ctx_menu = ctx.clone();
+        let menu_log_path = log_path.clone();
         std::thread::spawn(move || {
+            let _ = append_debug_log(&menu_log_path, "tray", "Tray menu listener started");
             loop {
                 match MenuEvent::receiver().recv() {
                     Ok(event) => {
+                        let _ = append_debug_log(
+                            &menu_log_path,
+                            "tray",
+                            &format!("Tray menu event received: {:?}", event.id),
+                        );
                         if event.id == quit_id {
                             if tx_menu.send(TrayEvent::Quit).is_err() {
+                                let _ = append_debug_log(
+                                    &menu_log_path,
+                                    "tray",
+                                    "Failed to queue quit event; stopping menu listener",
+                                );
                                 break;
                             }
+                            let _ = append_debug_log(
+                                &menu_log_path,
+                                "tray",
+                                "Queued quit event and waking viewport",
+                            );
+                            ctx_menu.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                             ctx_menu.request_repaint();
                         }
                     }
-                    Err(_) => break,
+                    Err(err) => {
+                        let _ = append_debug_log(
+                            &menu_log_path,
+                            "tray",
+                            &format!("Tray menu listener stopped: {}", err),
+                        );
+                        break;
+                    }
                 }
             }
         });
 
         // Listen for tray icon clicks (Open) on a background thread
+        let tray_log_path = log_path.clone();
         std::thread::spawn(move || {
+            let _ = append_debug_log(&tray_log_path, "tray", "Tray icon listener started");
             loop {
                 match TrayIconEvent::receiver().recv() {
-                    Ok(TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    }) => {
-                        if tx.send(TrayEvent::Open).is_err() {
-                            break;
+                    Ok(event) => {
+                        let _ = append_debug_log(
+                            &tray_log_path,
+                            "tray",
+                            &format!("Tray icon event received: {:?}", event),
+                        );
+
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            if tx.send(TrayEvent::Open).is_err() {
+                                let _ = append_debug_log(
+                                    &tray_log_path,
+                                    "tray",
+                                    "Failed to queue open event; stopping tray listener",
+                                );
+                                break;
+                            }
+                            let _ = append_debug_log(
+                                &tray_log_path,
+                                "tray",
+                                "Queued open event and restoring viewport",
+                            );
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                            ctx.request_repaint();
                         }
-                        ctx.request_repaint();
                     }
-                    Ok(_) => {}
-                    Err(_) => break,
+                    Err(err) => {
+                        let _ = append_debug_log(
+                            &tray_log_path,
+                            "tray",
+                            &format!("Tray icon listener stopped: {}", err),
+                        );
+                        break;
+                    }
                 }
             }
         });

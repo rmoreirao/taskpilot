@@ -1,8 +1,11 @@
+#![windows_subsystem = "windows"]
+
 mod app;
 mod autostart;
 mod config;
 mod executor;
 mod scheduler;
+mod task_sources;
 mod tray;
 mod ui;
 mod workspace;
@@ -21,6 +24,13 @@ fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let start_minimized = args.contains(&"--minimized".to_string());
 
+    // Parse --task-dir arguments (repeatable)
+    let cli_task_dirs: Vec<std::path::PathBuf> = args
+        .windows(2)
+        .filter(|pair| pair[0] == "--task-dir")
+        .map(|pair| std::path::PathBuf::from(&pair[1]))
+        .collect();
+
     let workspace_dir = std::env::current_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join(".taskpilot");
@@ -38,6 +48,40 @@ fn main() -> eframe::Result<()> {
         let _ = AppConfig::save_default(&config_path);
         AppConfig::default_config()
     };
+
+    // Merge config task_sources with CLI --task-dir arguments
+    let mut source_dirs: Vec<std::path::PathBuf> = config
+        .general
+        .task_sources
+        .iter()
+        .map(std::path::PathBuf::from)
+        .collect();
+    for dir in &cli_task_dirs {
+        if !source_dirs.contains(dir) {
+            source_dirs.push(dir.clone());
+        }
+    }
+
+    // Load and merge tasks from all sources
+    let (merged_tasks, source_metadata) =
+        task_sources::load_all(&config.tasks, &config_path, &source_dirs).unwrap_or_else(|e| {
+            eprintln!("Task source error: {}. Using local tasks only.", e);
+            let mut map = std::collections::HashMap::new();
+            for task in &config.tasks {
+                map.insert(
+                    task.name.clone(),
+                    task_sources::TaskSourceInfo {
+                        origin: task_sources::TaskOrigin::Local,
+                        file_path: config_path.clone(),
+                    },
+                );
+            }
+            (config.tasks.clone(), map)
+        });
+
+    // Build the effective config with merged tasks
+    let mut effective_config = config;
+    effective_config.tasks = merged_tasks;
 
     let icon_png = include_bytes!("../assets/icon.png");
     let icon_img = ImageReader::new(Cursor::new(icon_png))
@@ -67,9 +111,16 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
-            let tray = TrayManager::new(cc.egui_ctx.clone())
+            let tray = TrayManager::new(cc.egui_ctx.clone(), workspace.debug_log_path())
                 .expect("Failed to create system tray");
-            Ok(Box::new(TaskPilotApp::new(workspace, config, tray)))
+            Ok(Box::new(TaskPilotApp::new(
+                workspace,
+                effective_config,
+                tray,
+                source_metadata,
+                source_dirs,
+                cli_task_dirs,
+            )))
         }),
     )
 }
