@@ -72,9 +72,17 @@ fn main() -> eframe::Result<()> {
         }
     }
 
+    // Collect individual task config files
+    let source_files: Vec<std::path::PathBuf> = config
+        .general
+        .task_configs
+        .iter()
+        .map(std::path::PathBuf::from)
+        .collect();
+
     // Load and merge tasks from all sources
     let (merged_tasks, source_metadata) =
-        task_sources::load_all(&config.tasks, &config_path, &source_dirs, Some(&workspace)).unwrap_or_else(|e| {
+        task_sources::load_all(&config.tasks, &config_path, &source_dirs, &source_files, Some(&workspace)).unwrap_or_else(|e| {
             eprintln!("Task source error: {}. Using local tasks only.", e);
             let mut map = std::collections::HashMap::new();
             for task in &config.tasks {
@@ -129,6 +137,7 @@ fn main() -> eframe::Result<()> {
                 tray,
                 source_metadata,
                 source_dirs,
+                source_files,
                 cli_task_dirs,
                 single_instance_guard,
             )))

@@ -5,11 +5,24 @@ use chrono::Utc;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+
+pub type CancelToken = Arc<AtomicBool>;
+
+pub fn new_cancel_token() -> CancelToken {
+    Arc::new(AtomicBool::new(false))
+}
+
+enum WaitError {
+    Timeout,
+    Cancelled,
+    Other,
+}
 
 pub fn parse_duration(s: &str) -> Option<Duration> {
     let s = s.trim();
@@ -24,7 +37,7 @@ pub fn parse_duration(s: &str) -> Option<Duration> {
     }
 }
 
-pub fn execute_task(task: &TaskConfig, workspace: &Workspace) -> TaskRun {
+pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelToken) -> TaskRun {
     let started_at = Utc::now();
     let start_instant = Instant::now();
     let timeout = task.timeout.as_ref().and_then(|t| parse_duration(t));
@@ -68,6 +81,29 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace) -> TaskRun {
     let mut last_run = None;
 
     for attempt in 0..=retries {
+        // Check cancellation before each attempt
+        if cancel.load(Ordering::Relaxed) {
+            workspace.log_task(
+                LogLevel::Info,
+                "executor",
+                &format!("Task '{}': cancelled before attempt {}", task.name, attempt),
+            );
+            let elapsed = start_instant.elapsed();
+            let run = TaskRun {
+                task_name: task.name.clone(),
+                status: RunStatus::Stopped,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: "Task was stopped by user".to_string(),
+                started_at,
+                finished_at: Some(Utc::now()),
+                duration_ms: Some(elapsed.as_millis() as u64),
+            };
+            let _ = workspace.save_run(&run);
+            workspace.remove_live_log(&task.name);
+            return run;
+        }
+
         if attempt > 0 {
             workspace.log_task(
                 LogLevel::Info,
@@ -86,6 +122,7 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace) -> TaskRun {
             Some(&live_log_path),
             workspace,
             &task.name,
+            cancel,
         );
         let elapsed = start_instant.elapsed();
         let finished_at = Utc::now();
@@ -101,7 +138,11 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace) -> TaskRun {
             duration_ms: Some(elapsed.as_millis() as u64),
         };
 
-        if run.status == RunStatus::Passed || attempt == retries {
+        // Stop retrying on success, cancellation, or final attempt
+        if run.status == RunStatus::Passed
+            || run.status == RunStatus::Stopped
+            || attempt == retries
+        {
             workspace.log_task(
                 LogLevel::Info,
                 "executor",
@@ -113,6 +154,7 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace) -> TaskRun {
                         RunStatus::Failed => "failed",
                         RunStatus::Timeout => "timeout",
                         RunStatus::Running => "running",
+                        RunStatus::Stopped => "stopped",
                     },
                     run.exit_code.map_or("none".to_string(), |c| c.to_string()),
                     elapsed.as_millis(),
@@ -198,6 +240,7 @@ fn run_command(
     live_log_path: Option<&Path>,
     workspace: &Workspace,
     task_name: &str,
+    cancel: &CancelToken,
 ) -> CommandResult {
     let (shell, shell_flag) = if cfg!(target_os = "windows") {
         ("cmd", "/C")
@@ -276,12 +319,9 @@ fn run_command(
         spawn_stream_reader(s, "stderr", log_writer)
     });
 
-    // Wait for the process to exit (with or without timeout)
-    let exit_result = if let Some(timeout_dur) = timeout {
-        wait_with_timeout(&mut child, timeout_dur)
-    } else {
-        child.wait().map_err(|_| ())
-    };
+    // Wait for the process to exit, checking both timeout and cancellation
+    let pid = child.id();
+    let exit_result = wait_with_cancel(&mut child, timeout, cancel, pid);
 
     // Join the reader threads to collect output
     let stdout_str = stdout_handle
@@ -313,7 +353,24 @@ fn run_command(
                 stderr: stderr_str,
             }
         }
-        Err(_) => {
+        Err(WaitError::Cancelled) => {
+            workspace.log_task(
+                LogLevel::Info,
+                "executor",
+                &format!("Task '{}': stopped by user", task_name),
+            );
+            CommandResult {
+                status: RunStatus::Stopped,
+                exit_code: None,
+                stdout: stdout_str,
+                stderr: if stderr_str.is_empty() {
+                    "Task was stopped by user".to_string()
+                } else {
+                    format!("{}\nTask was stopped by user", stderr_str)
+                },
+            }
+        }
+        Err(WaitError::Timeout) => {
             workspace.log_task(
                 LogLevel::Warn,
                 "executor",
@@ -330,30 +387,61 @@ fn run_command(
                 },
             }
         }
+        Err(WaitError::Other) => {
+            CommandResult {
+                status: RunStatus::Failed,
+                exit_code: None,
+                stdout: stdout_str,
+                stderr: stderr_str,
+            }
+        }
     }
 }
 
-fn wait_with_timeout(
+fn wait_with_cancel(
     child: &mut std::process::Child,
-    timeout: Duration,
-) -> Result<std::process::ExitStatus, ()> {
+    timeout: Option<Duration>,
+    cancel: &CancelToken,
+    pid: u32,
+) -> Result<std::process::ExitStatus, WaitError> {
     let start = Instant::now();
     loop {
         match child.try_wait() {
-            Ok(Some(status)) => {
-                return Ok(status);
-            }
+            Ok(Some(status)) => return Ok(status),
             Ok(None) => {
-                if start.elapsed() >= timeout {
+                if cancel.load(Ordering::Relaxed) {
+                    kill_process_tree(pid);
                     let _ = child.kill();
                     let _ = child.wait();
-                    return Err(());
+                    return Err(WaitError::Cancelled);
+                }
+                if let Some(t) = timeout {
+                    if start.elapsed() >= t {
+                        kill_process_tree(pid);
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(WaitError::Timeout);
+                    }
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
-            Err(_) => return Err(()),
+            Err(_) => return Err(WaitError::Other),
         }
     }
+}
+
+/// Kill a process and all its descendants.
+#[cfg(windows)]
+fn kill_process_tree(pid: u32) {
+    let _ = Command::new("taskkill")
+        .args(["/F", "/T", "/PID", &pid.to_string()])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .output();
+}
+
+#[cfg(not(windows))]
+fn kill_process_tree(_pid: u32) {
+    // Non-Windows: child.kill() in the caller handles the direct process
 }
 
 fn expand_home(path: &str) -> String {

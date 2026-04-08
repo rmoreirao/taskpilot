@@ -89,9 +89,17 @@ fn main() {
         }
     }
 
+    // Collect individual task config files
+    let source_files: Vec<std::path::PathBuf> = config
+        .general
+        .task_configs
+        .iter()
+        .map(std::path::PathBuf::from)
+        .collect();
+
     // Load and merge tasks from all sources
     let (merged_tasks, source_metadata) =
-        task_sources::load_all(&config.tasks, &config_path, &source_dirs, Some(&workspace)).unwrap_or_else(|e| {
+        task_sources::load_all(&config.tasks, &config_path, &source_dirs, &source_files, Some(&workspace)).unwrap_or_else(|e| {
             eprintln!("Task source error: {}. Using local tasks only.", e);
             let mut map = std::collections::HashMap::new();
             for task in &config.tasks {
@@ -210,7 +218,8 @@ fn main() {
         };
 
         println!("Running task '{}'...", task.name);
-        let run = executor::execute_task(&task, &workspace);
+        let cancel = executor::new_cancel_token();
+        let run = executor::execute_task(&task, &workspace, &cancel);
 
         if !run.stdout.is_empty() {
             print!("{}", run.stdout);
@@ -243,6 +252,10 @@ fn main() {
             RunStatus::Running => {
                 eprintln!("[taskpilot] Task '{}' in unexpected state", task.name);
                 1
+            }
+            RunStatus::Stopped => {
+                eprintln!("[taskpilot] Task '{}' was stopped", task.name);
+                130
             }
         };
 

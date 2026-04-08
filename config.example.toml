@@ -9,6 +9,10 @@ start_with_windows = true
 # or a flat single-task format (name, command, cron fields at top level).
 # task_sources = ["C:\\SharedTasks", "D:\\team-tasks"]
 
+# External task configs — individual .toml task definition files.
+# Same format support as task_sources (multi-task or single-task).
+# task_configs = ["C:\\SharedTasks\\my-task.toml", "D:\\team\\nightly.toml"]
+
 [notifications]
 enabled = true
 on_failure = true

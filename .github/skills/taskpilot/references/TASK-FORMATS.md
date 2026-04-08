@@ -65,6 +65,30 @@ CLI and config sources are merged (duplicates removed by path).
 - External tasks appear in the dashboard with a 📁 source badge.
 - External tasks are **read-only** in the dashboard.
 
+---
+
+## Individual Task Config Files
+
+Instead of scanning an entire directory, you can point to specific `.toml` files.
+
+### Specifying files
+
+**In config.toml:**
+
+```toml
+[general]
+task_configs = ["C:\\SharedTasks\\nightly-backup.toml", "~/my-task.toml"]
+```
+
+### Behavior
+
+- Each file is loaded using the same multi-task / single-task parsing as directory sources.
+- Non-existent files are skipped with a warning (TaskPilot still starts).
+- Files that fail to parse are skipped with a warning.
+- **File watching**: Individual files are watched for changes and reload automatically.
+- Tasks from `task_configs` appear as external (📁 badge, read-only) in the dashboard.
+- `task_sources` and `task_configs` can be used together.
+
 ### Name uniqueness
 
 Task names must be globally unique across all sources. If a task name appears in more than one

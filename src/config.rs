@@ -23,6 +23,8 @@ pub struct GeneralConfig {
     pub start_with_windows: bool,
     #[serde(default)]
     pub task_sources: Vec<String>,
+    #[serde(default)]
+    pub task_configs: Vec<String>,
 }
 
 fn default_log_level() -> String {
@@ -39,6 +41,7 @@ impl Default for GeneralConfig {
             max_log_retention_days: default_max_retention(),
             start_with_windows: false,
             task_sources: Vec::new(),
+            task_configs: Vec::new(),
         }
     }
 }

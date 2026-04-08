@@ -204,6 +204,7 @@ pub fn render_notifications(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
             RunStatus::Failed => ("✕", RED),
             RunStatus::Timeout => ("⏱", YELLOW),
             RunStatus::Running => ("●", BLUE),
+            RunStatus::Stopped => ("■", YELLOW),
         };
 
         egui::Frame::group(ui.style())

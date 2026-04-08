@@ -10,6 +10,7 @@ Full field-by-field reference for `.taskpilot/config.toml`.
 | `max_log_retention_days` | integer | `30` | Days to keep task run log files before pruning. *(Parsed but not yet enforced at runtime — reserved for future use.)* |
 | `start_with_windows` | boolean | `false` | Persisted state of the auto-start toggle. Changed via the **Settings** UI checkbox, which registers/unregisters the Windows Run registry key. This field is **not** applied automatically on startup or config reload. |
 | `task_sources` | array of strings | `[]` | List of external directories containing `.toml` task definitions. Paths support `~/` expansion. Merged with CLI `--task-dir` arguments. |
+| `task_configs` | array of strings | `[]` | List of individual `.toml` task definition files. Paths support `~/` expansion. Same format as files in `task_sources` directories. |
 
 ### Example
 
@@ -19,6 +20,7 @@ log_level = "info"
 max_log_retention_days = 30
 start_with_windows = true
 task_sources = ["C:\\SharedTasks", "~/team-tasks"]
+task_configs = ["C:\\SharedTasks\\special-task.toml", "~/my-task.toml"]
 ```
 
 ---

@@ -29,6 +29,7 @@ TaskPilot is a simple, no-fuss task scheduler for Windows. If you have scripts, 
 - **Cron scheduling** — Use familiar `*/5 * * * *` syntax to define when tasks run
 - **Minimize to tray** — Closing the window hides it to the system tray; click the tray icon to restore
 - **Live dashboard** — See every task's status, last run time, exit code, and stdout/stderr at a glance
+- **Stop running tasks** — Click the **■ Stop** button on the dashboard to cancel a task mid-execution (kills the entire process tree)
 - **CLI mode** — Run or test any task from the command line with `taskpilot-cli --run <name>`
 - **Desktop notifications** — Get a Windows notification when a task fails or recovers
 - **Retries & timeouts** — Configure per-task retry counts and maximum run durations
@@ -240,7 +241,7 @@ The CLI binary:
 - Loads the same `.taskpilot\config.toml` and external task sources as the GUI
 - Executes the task synchronously and streams stdout/stderr to the terminal
 - Saves run results to the workspace (visible in the GUI's run history)
-- Exits with the task's exit code (0 = passed, non-zero = failed, 124 = timeout)
+- Exits with the task's exit code (0 = passed, non-zero = failed, 124 = timeout, 130 = stopped)
 
 ### Tray icon
 

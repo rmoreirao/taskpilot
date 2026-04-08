@@ -65,6 +65,7 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
         .collect();
 
     let mut trigger_task = None;
+    let mut stop_task = None;
     let mut view_task = None;
 
     egui::Grid::new("task_table")
@@ -133,6 +134,9 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
                         RunStatus::Running => {
                             ui.label(egui::RichText::new("● Running").color(BLUE));
                         }
+                        RunStatus::Stopped => {
+                            ui.label(egui::RichText::new("■ Stopped").color(YELLOW));
+                        }
                     };
                 } else {
                     ui.label(egui::RichText::new("— Never run").color(MUTED));
@@ -167,13 +171,11 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
 
                 // Actions
                 if task.is_running {
-                    // Show last line of live output as a snippet
-                    if let Some(log) = app.live_logs.get(&task.name) {
-                        let last_line = log.lines().last().unwrap_or("Running...");
-                        let snippet: String = last_line.chars().take(60).collect();
-                        ui.label(egui::RichText::new(format!("⏳ {}", snippet)).small().color(BLUE));
-                    } else {
-                        ui.label(egui::RichText::new("⏳ Running...").color(MUTED));
+                    if ui
+                        .button(egui::RichText::new("■ Stop").color(RED))
+                        .clicked()
+                    {
+                        stop_task = Some(task.name.clone());
                     }
                 } else if ui.button("▶ Run").clicked() {
                     trigger_task = Some(task.name.clone());
@@ -186,6 +188,9 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
     // Apply actions after rendering
     if let Some(name) = trigger_task {
         app.trigger_task(&name);
+    }
+    if let Some(name) = stop_task {
+        app.stop_task(&name);
     }
     if let Some(name) = view_task {
         app.selected_task_runs = app.workspace.load_runs(&name, 50);

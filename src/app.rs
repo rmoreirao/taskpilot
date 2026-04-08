@@ -65,6 +65,7 @@ pub struct TaskPilotApp {
     should_quit: bool,
     pub(crate) source_metadata: HashMap<String, TaskSourceInfo>,
     pub(crate) source_dirs: Vec<PathBuf>,
+    source_files: Vec<PathBuf>,
     cli_task_dirs: Vec<PathBuf>,
     _watcher: Option<notify::RecommendedWatcher>,
     watcher_rx: Option<std::sync::mpsc::Receiver<()>>,
@@ -88,14 +89,15 @@ impl TaskPilotApp {
         tray: TrayManager,
         source_metadata: HashMap<String, TaskSourceInfo>,
         source_dirs: Vec<PathBuf>,
+        source_files: Vec<PathBuf>,
         cli_task_dirs: Vec<PathBuf>,
         single_instance_guard: SingleInstanceGuard,
     ) -> Self {
         let config_content = workspace.config_content();
         let scheduler = start_scheduler(config.clone(), Arc::clone(&workspace));
 
-        // Set up file watcher for external source directories
-        let (watcher, watcher_rx) = Self::create_watcher(&source_dirs);
+        // Set up file watcher for external source directories and individual files
+        let (watcher, watcher_rx) = Self::create_watcher(&source_dirs, &source_files);
 
         // Clean up old binaries from a previous update
         updater::cleanup_old_binaries();
@@ -128,6 +130,7 @@ impl TaskPilotApp {
             should_quit: false,
             source_metadata,
             source_dirs,
+            source_files,
             cli_task_dirs,
             _watcher: watcher,
             watcher_rx,
@@ -157,13 +160,14 @@ impl TaskPilotApp {
 
     fn create_watcher(
         dirs: &[PathBuf],
+        files: &[PathBuf],
     ) -> (
         Option<notify::RecommendedWatcher>,
         Option<std::sync::mpsc::Receiver<()>>,
     ) {
         use notify::{RecursiveMode, Watcher};
 
-        if dirs.is_empty() {
+        if dirs.is_empty() && files.is_empty() {
             return (None, None);
         }
 
@@ -187,6 +191,11 @@ impl TaskPilotApp {
                 for dir in dirs {
                     if dir.exists() {
                         let _ = watcher.watch(dir, RecursiveMode::NonRecursive);
+                    }
+                }
+                for file in files {
+                    if file.exists() {
+                        let _ = watcher.watch(file, RecursiveMode::NonRecursive);
                     }
                 }
                 (Some(watcher), Some(rx))
@@ -231,6 +240,7 @@ impl TaskPilotApp {
                         RunStatus::Failed => "failed",
                         RunStatus::Timeout => "timed out",
                         RunStatus::Running => "running",
+                        RunStatus::Stopped => "stopped",
                     };
                     self.notifications.insert(
                         0,
@@ -252,6 +262,13 @@ impl TaskPilotApp {
             .scheduler
             .cmd_tx
             .send(SchedulerCommand::RunTask(name.to_string()));
+    }
+
+    pub(crate) fn stop_task(&self, name: &str) {
+        let _ = self
+            .scheduler
+            .cmd_tx
+            .send(SchedulerCommand::StopTask(name.to_string()));
     }
 
     fn process_watcher_events(&mut self) {
@@ -286,11 +303,20 @@ impl TaskPilotApp {
                     }
                 }
 
+                // Rebuild individual source files from config
+                let source_files: Vec<PathBuf> = new_config
+                    .general
+                    .task_configs
+                    .iter()
+                    .map(PathBuf::from)
+                    .collect();
+
                 // Reload external tasks
                 match task_sources::load_all(
                     &new_config.tasks,
                     &self.workspace.config_path(),
                     &source_dirs,
+                    &source_files,
                     Some(&self.workspace),
                 ) {
                     Ok((merged_tasks, source_metadata)) => {
@@ -301,12 +327,13 @@ impl TaskPilotApp {
                         self.config_content = self.workspace.config_content();
                         self.source_metadata = source_metadata;
 
-                        // Recreate watcher if source dirs changed
-                        if source_dirs != self.source_dirs {
-                            let (watcher, watcher_rx) = Self::create_watcher(&source_dirs);
+                        // Recreate watcher if source dirs or files changed
+                        if source_dirs != self.source_dirs || source_files != self.source_files {
+                            let (watcher, watcher_rx) = Self::create_watcher(&source_dirs, &source_files);
                             self._watcher = watcher;
                             self.watcher_rx = watcher_rx;
                             self.source_dirs = source_dirs;
+                            self.source_files = source_files;
                         }
 
                         let _ = self

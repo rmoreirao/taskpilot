@@ -1,17 +1,19 @@
 use crate::config::AppConfig;
-use crate::executor::execute_task;
+use crate::executor::{execute_task, new_cancel_token, CancelToken};
 use crate::logging::LogLevel;
 use crate::workspace::{TaskScheduleState, RunStatus, SchedulerState, Workspace};
 use chrono::Utc;
 use cron::Schedule;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::atomic::Ordering;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 pub enum SchedulerCommand {
     RunTask(String),
+    StopTask(String),
     UpdateConfig(AppConfig),
     Shutdown,
 }
@@ -55,7 +57,7 @@ fn scheduler_loop(
     evt_tx: mpsc::Sender<SchedulerEvent>,
 ) {
     let mut state = workspace.load_state();
-    let running: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    let running: Arc<Mutex<HashMap<String, CancelToken>>> = Arc::new(Mutex::new(HashMap::new()));
 
     // Initialize next_run for all tasks
     for task in &config.tasks {
@@ -103,6 +105,23 @@ fn scheduler_loop(
                         &mut state,
                     );
                 }
+                Ok(SchedulerCommand::StopTask(name)) => {
+                    let token = running.lock().unwrap().get(&name).cloned();
+                    if let Some(cancel) = token {
+                        workspace.log_task(
+                            LogLevel::Info,
+                            "scheduler",
+                            &format!("Stop requested for task '{}'", name),
+                        );
+                        cancel.store(true, Ordering::Relaxed);
+                    } else {
+                        workspace.log_task(
+                            LogLevel::Debug,
+                            "scheduler",
+                            &format!("Stop requested for task '{}' but it is not running", name),
+                        );
+                    }
+                }
                 Ok(SchedulerCommand::UpdateConfig(new_config)) => {
                     workspace.log_task(
                         LogLevel::Info,
@@ -142,7 +161,7 @@ fn scheduler_loop(
             .tasks
             .iter()
             .filter(|task| {
-                let is_running = running.lock().unwrap().contains(&task.name);
+                let is_running = running.lock().unwrap().contains_key(&task.name);
                 if is_running {
                     return false;
                 }
@@ -182,7 +201,7 @@ fn spawn_task(
     name: &str,
     workspace: &Arc<Workspace>,
     evt_tx: &mpsc::Sender<SchedulerEvent>,
-    running: &Arc<Mutex<HashSet<String>>>,
+    running: &Arc<Mutex<HashMap<String, CancelToken>>>,
     state: &mut SchedulerState,
 ) {
     let task = match config.tasks.iter().find(|t| t.name == name) {
@@ -197,9 +216,11 @@ fn spawn_task(
         }
     };
 
+    let cancel = new_cancel_token();
+
     {
         let mut r = running.lock().unwrap();
-        if r.contains(name) {
+        if r.contains_key(name) {
             workspace.log_task(
                 LogLevel::Debug,
                 "scheduler",
@@ -207,7 +228,7 @@ fn spawn_task(
             );
             return;
         }
-        r.insert(name.to_string());
+        r.insert(name.to_string(), cancel.clone());
     }
 
     // Update state
@@ -234,10 +255,10 @@ fn spawn_task(
     let notify_cfg = config.notifications.clone();
 
     thread::spawn(move || {
-        let run = execute_task(&task, &ws);
+        let run = execute_task(&task, &ws, &cancel);
         let status = run.status.clone();
 
-        // OS notification on failure
+        // OS notification on failure (suppress for user-initiated stops)
         if (status == RunStatus::Failed || status == RunStatus::Timeout)
             && notify_cfg.enabled
             && task.notify_on_failure
@@ -245,8 +266,9 @@ fn spawn_task(
             send_failure_notification(&task.name, &run.stderr);
         }
 
-        let _ = evt.send(SchedulerEvent::TaskFinished(task_name.clone(), status));
+        // Remove from running map before sending event to avoid race
         running_set.lock().unwrap().remove(&task_name);
+        let _ = evt.send(SchedulerEvent::TaskFinished(task_name.clone(), status));
     });
 }
 

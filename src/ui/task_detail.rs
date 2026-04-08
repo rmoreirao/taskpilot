@@ -198,6 +198,7 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
             RunStatus::Failed => ("✕", RED),
             RunStatus::Timeout => ("⏱", YELLOW),
             RunStatus::Running => ("●", BLUE),
+            RunStatus::Stopped => ("■", YELLOW),
         };
 
         egui::Frame::group(ui.style())
