@@ -235,3 +235,33 @@ fn list_tasks_from_escape_config() {
         .stdout(contains("echo-with-quotes"))
         .stdout(contains("echo-backslash-path"));
 }
+
+// ─── Test 15: Command with embedded quotes passed through cmd /C ────────────
+
+#[test]
+fn run_command_with_embedded_quotes_via_cmd() {
+    // Simulates commands like: copilot -p "execute @ path" --flag
+    // The inner double quotes must survive cmd /C passthrough (raw_arg fix).
+    let config = r#"
+[general]
+log_level = "info"
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "quoted-arg-task"
+command = 'echo "hello world" extra'
+cron = "*/5 * * * *"
+timeout = "10s"
+notify_on_failure = false
+"#;
+
+    let ws = TestWorkspace::from_config_str(config);
+    ws.cli_cmd()
+        .args(["--run", "quoted-arg-task"])
+        .assert()
+        .success()
+        // cmd /C echo "hello world" extra → prints: "hello world" extra
+        .stdout(contains("hello world"));
+}

@@ -136,10 +136,16 @@ fn run_command(
 ) -> CommandResult {
     let mut cmd = if cfg!(target_os = "windows") {
         let mut c = Command::new("cmd");
-        c.args(["/C", command]);
-        // Prevent a visible console window from appearing
+        // Use raw_arg to avoid Rust escaping double quotes in the command string.
+        // cmd.exe doesn't understand \" — it uses its own quote handling rules.
         #[cfg(windows)]
-        c.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        {
+            c.raw_arg("/C");
+            c.raw_arg(command);
+            c.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        #[cfg(not(windows))]
+        c.args(["/C", command]);
         c
     } else {
         let mut c = Command::new("sh");
