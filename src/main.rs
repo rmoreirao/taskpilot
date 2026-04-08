@@ -1,25 +1,22 @@
 #![windows_subsystem = "windows"]
 
-mod app;
-mod autostart;
-mod config;
-mod executor;
-mod scheduler;
-mod task_sources;
-mod tray;
-mod ui;
-mod workspace;
+use taskpilot::app::TaskPilotApp;
+use taskpilot::config::AppConfig;
+use taskpilot::single_instance::SingleInstanceGuard;
+use taskpilot::task_sources;
+use taskpilot::tray::TrayManager;
+use taskpilot::workspace::Workspace;
 
-use app::TaskPilotApp;
-use config::AppConfig;
 use eframe::egui;
 use image::ImageReader;
 use std::io::Cursor;
 use std::sync::Arc;
-use tray::TrayManager;
-use workspace::Workspace;
 
 fn main() -> eframe::Result<()> {
+    // Ensure only one instance of TaskPilot is running.
+    // If another instance exists, this signals it to restore its window and exits.
+    let single_instance_guard = SingleInstanceGuard::acquire();
+
     // Parse command line arguments
     let args: Vec<String> = std::env::args().collect();
     let start_minimized = args.contains(&"--minimized".to_string());
@@ -124,6 +121,7 @@ fn main() -> eframe::Result<()> {
                 source_metadata,
                 source_dirs,
                 cli_task_dirs,
+                single_instance_guard,
             )))
         }),
     )

@@ -1,13 +1,14 @@
 use crate::config::AppConfig;
 use crate::scheduler::{SchedulerCommand, SchedulerEvent, SchedulerHandle, start_scheduler};
+use crate::single_instance::SingleInstanceGuard;
 use crate::task_sources::{self, TaskSourceInfo};
 use crate::tray::{TrayEvent, TrayManager};
 use crate::workspace::{TaskRun, RunStatus, Workspace};
 use eframe::egui;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum View {
@@ -24,6 +25,7 @@ pub struct TaskStatus {
     pub cron: String,
     pub last_run: Option<TaskRun>,
     pub is_running: bool,
+    pub running_since: Option<Instant>,
 }
 
 #[derive(Clone)]
@@ -41,7 +43,8 @@ pub struct TaskPilotApp {
     scheduler: SchedulerHandle,
     pub(crate) current_view: View,
     pub(crate) task_statuses: Vec<TaskStatus>,
-    pub(crate) running_tasks: HashSet<String>,
+    pub(crate) running_tasks: HashMap<String, Instant>,
+    pub(crate) live_logs: HashMap<String, String>,
     pub(crate) selected_task_runs: Vec<TaskRun>,
     last_refresh: Instant,
     pub(crate) notifications: Vec<NotificationItem>,
@@ -53,6 +56,10 @@ pub struct TaskPilotApp {
     cli_task_dirs: Vec<PathBuf>,
     _watcher: Option<notify::RecommendedWatcher>,
     watcher_rx: Option<std::sync::mpsc::Receiver<()>>,
+    single_instance_guard: SingleInstanceGuard,
+    pub(crate) log_refresh_interval_secs: f32,
+    last_log_refresh: Instant,
+    pub(crate) force_log_refresh: bool,
 }
 
 impl TaskPilotApp {
@@ -63,6 +70,7 @@ impl TaskPilotApp {
         source_metadata: HashMap<String, TaskSourceInfo>,
         source_dirs: Vec<PathBuf>,
         cli_task_dirs: Vec<PathBuf>,
+        single_instance_guard: SingleInstanceGuard,
     ) -> Self {
         let config_content = workspace.config_content();
         let scheduler = start_scheduler(config.clone(), Arc::clone(&workspace));
@@ -77,7 +85,8 @@ impl TaskPilotApp {
             scheduler,
             current_view: View::Tasks,
             task_statuses: Vec::new(),
-            running_tasks: HashSet::new(),
+            running_tasks: HashMap::new(),
+            live_logs: HashMap::new(),
             selected_task_runs: Vec::new(),
             last_refresh: Instant::now(),
             notifications: Vec::new(),
@@ -89,6 +98,10 @@ impl TaskPilotApp {
             cli_task_dirs,
             _watcher: watcher,
             watcher_rx,
+            single_instance_guard,
+            log_refresh_interval_secs: 2.0,
+            last_log_refresh: Instant::now(),
+            force_log_refresh: false,
         };
         app.refresh_task_statuses();
         let _ = app
@@ -152,7 +165,8 @@ impl TaskPilotApp {
                     command: task.command.clone(),
                     cron: task.cron.clone(),
                     last_run,
-                    is_running: self.running_tasks.contains(&task.name),
+                    is_running: self.running_tasks.contains_key(&task.name),
+                    running_since: self.running_tasks.get(&task.name).copied(),
                 }
             })
             .collect();
@@ -162,10 +176,11 @@ impl TaskPilotApp {
         while let Ok(evt) = self.scheduler.evt_rx.try_recv() {
             match evt {
                 SchedulerEvent::TaskStarted(name) => {
-                    self.running_tasks.insert(name);
+                    self.running_tasks.insert(name, Instant::now());
                 }
                 SchedulerEvent::TaskFinished(name, status) => {
                     self.running_tasks.remove(&name);
+                    self.live_logs.remove(&name);
                     let status_text = match &status {
                         RunStatus::Passed => "passed",
                         RunStatus::Failed => "failed",
@@ -307,6 +322,16 @@ impl eframe::App for TaskPilotApp {
         self.process_tray_events(ctx);
         self.process_watcher_events();
 
+        // Another instance signaled us to come to the foreground
+        if self.single_instance_guard.check_activation() {
+            let _ = self
+                .workspace
+                .append_debug_log("app", "Another instance requested activation; restoring window");
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+
         // If quit was requested (e.g. from tray menu), initiate window close
         if self.should_quit {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -332,13 +357,27 @@ impl eframe::App for TaskPilotApp {
             }
         }
 
-        // Auto-refresh from disk every 2 seconds
+        // Auto-refresh task statuses and execution history every 2 seconds
         if self.last_refresh.elapsed().as_secs() >= 2 {
             self.refresh_task_statuses();
+
             if let View::TaskDetail(ref name) = self.current_view {
                 self.selected_task_runs = self.workspace.load_runs(name, 50);
             }
             self.last_refresh = Instant::now();
+        }
+
+        // Refresh live logs on a separate configurable timer
+        let log_interval = Duration::from_secs_f32(self.log_refresh_interval_secs);
+        if self.force_log_refresh || self.last_log_refresh.elapsed() >= log_interval {
+            for name in self.running_tasks.keys() {
+                let content = self.workspace.read_live_log(name);
+                if !content.is_empty() {
+                    self.live_logs.insert(name.clone(), content);
+                }
+            }
+            self.force_log_refresh = false;
+            self.last_log_refresh = Instant::now();
         }
 
         ctx.request_repaint_after(std::time::Duration::from_secs(1));

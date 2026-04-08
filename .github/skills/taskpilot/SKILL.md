@@ -4,11 +4,12 @@ description: >
   Guide for configuring and interacting with TaskPilot, a lightweight Windows task scheduler.
   Use this skill when asked to create, edit, or troubleshoot TaskPilot configuration files (config.toml),
   add or modify scheduled tasks, configure notifications, set up external task source directories,
-  or launch TaskPilot from the command line. Trigger keywords include: taskpilot, config.toml,
-  cron task, task scheduler, scheduled command, task source, --task-dir, --minimized.
+  run or test tasks from the command line, or launch TaskPilot from the command line.
+  Trigger keywords include: taskpilot, config.toml, cron task, task scheduler, scheduled command,
+  task source, --task-dir, --minimized, --run, --list.
 compatibility: >
   Windows. TaskPilot is a native Windows application. Commands are executed via cmd /C.
-  Requires the taskpilot.exe binary.
+  Requires the taskpilot.exe (GUI) and/or taskpilot-cli.exe (CLI) binaries.
 ---
 
 # TaskPilot — Configuration & CLI Skill
@@ -34,11 +35,14 @@ on_failure = true
 
 [[task]]
 name = "my-backup"
-command = "robocopy C:\\Data D:\\Backup /MIR"
+command = 'robocopy C:\Data D:\Backup /MIR'
 cron = "0 2 * * *"
 timeout = "10m"
 notify_on_failure = true
 ```
+
+> **Tip:** Use single-quoted TOML strings (`'...'`) for commands with Windows paths or embedded
+> quotes — backslashes are treated literally. In double-quoted strings, you must escape them: `"C:\\Data"`.
 
 ### 2. Launch TaskPilot
 
@@ -55,9 +59,19 @@ No restart is needed. External task source directories are watched automatically
 
 ## CLI Flags
 
+### GUI binary (`taskpilot.exe`)
+
 | Flag | Description |
 |---|---|
 | `--minimized` | Start without showing the window (useful for auto-start at login) |
+| `--task-dir <path>` | Load additional task definitions from `<path>`. Repeatable. |
+
+### CLI binary (`taskpilot-cli.exe`)
+
+| Flag | Description |
+|---|---|
+| `--list` | Print all configured task names with their source and cron schedule |
+| `--run <name>` | Execute a task immediately, print output, and exit with the task's exit code |
 | `--task-dir <path>` | Load additional task definitions from `<path>`. Repeatable. |
 
 Examples:
@@ -65,7 +79,20 @@ Examples:
 ```bat
 rem Launch hidden, loading tasks from two shared directories
 taskpilot.exe --minimized --task-dir C:\SharedTasks --task-dir D:\team-tasks
+
+rem List all configured tasks
+taskpilot-cli --list
+
+rem Run a specific task and see its output
+taskpilot-cli --run my-backup
+
+rem Test an external task
+taskpilot-cli --task-dir C:\SharedTasks --run team-cleanup
 ```
+
+The CLI binary shares the same `.taskpilot/` workspace and config as the GUI.
+It runs tasks synchronously, saves run results to the workspace (visible in the GUI's
+run history), and exits with the task's exit code (0 = passed, non-zero = failed, 124 = timeout).
 
 CLI `--task-dir` paths are merged with `task_sources` from `config.toml` (duplicates removed).
 
@@ -158,7 +185,7 @@ it is **not** applied automatically on startup or config reload; use the UI to c
 cargo build --release
 ```
 
-The binary is at `target\release\taskpilot.exe`. Use `deploy.ps1` to build and copy to a target directory:
+The binary is at `target\release\taskpilot.exe` (GUI) and `target\release\taskpilot-cli.exe` (CLI). Use `deploy.ps1` to build and copy both to a target directory:
 
 ```powershell
 .\deploy.ps1                              # default: D:\apps\taskpilot\

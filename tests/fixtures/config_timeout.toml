@@ -1,0 +1,15 @@
+# Config with a task that will timeout.
+# Uses "ping -n 10 127.0.0.1" which takes ~9 seconds, with a 1s timeout.
+
+[general]
+log_level = "info"
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "slow-task"
+command = "ping -n 10 127.0.0.1"
+cron = "*/5 * * * *"
+timeout = "1s"
+notify_on_failure = false

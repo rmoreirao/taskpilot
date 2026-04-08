@@ -3,6 +3,18 @@ name = "taskpilot"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "taskpilot"
+path = "src/lib.rs"
+
+[[bin]]
+name = "taskpilot"
+path = "src/main.rs"
+
+[[bin]]
+name = "taskpilot-cli"
+path = "src/cli.rs"
+
 [dependencies]
 eframe = "0.28"
 serde = { version = "1", features = ["derive"] }
@@ -19,6 +31,12 @@ notify-debouncer-mini = "0.5"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_Security"] }
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"

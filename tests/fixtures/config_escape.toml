@@ -1,0 +1,24 @@
+# Config with commands that require TOML escape handling.
+# Demonstrates both single-quoted (literal) and double-quoted (escaped) strings.
+
+[general]
+log_level = "info"
+
+[notifications]
+enabled = false
+
+# Single-quoted string: backslashes and double quotes are literal — no escaping needed.
+[[task]]
+name = "echo-with-quotes"
+command = 'echo "Hello from TaskPilot!"'
+cron = "*/5 * * * *"
+timeout = "10s"
+notify_on_failure = false
+
+# Double-quoted string: backslashes must be doubled (\\).
+[[task]]
+name = "echo-backslash-path"
+command = "echo C:\\Users\\test\\scripts"
+cron = "*/5 * * * *"
+timeout = "10s"
+notify_on_failure = false

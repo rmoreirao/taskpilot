@@ -77,6 +77,20 @@ impl Workspace {
         self.runs_dir().join(sanitize_filename(task_name))
     }
 
+    pub fn live_log_path(&self, task_name: &str) -> PathBuf {
+        self.task_runs_dir(task_name).join("live.log")
+    }
+
+    pub fn read_live_log(&self, task_name: &str) -> String {
+        let path = self.live_log_path(task_name);
+        std::fs::read_to_string(&path).unwrap_or_default()
+    }
+
+    pub fn remove_live_log(&self, task_name: &str) {
+        let path = self.live_log_path(task_name);
+        let _ = std::fs::remove_file(&path);
+    }
+
     pub fn save_run(&self, run: &TaskRun) -> Result<PathBuf, String> {
         let dir = self.task_runs_dir(&run.task_name);
         std::fs::create_dir_all(&dir)

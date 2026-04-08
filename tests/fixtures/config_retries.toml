@@ -1,0 +1,16 @@
+# Config with a failing task that has retries configured.
+# Even after retries, the task should still fail.
+
+[general]
+log_level = "info"
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "retry-task"
+command = "cmd /c exit 1"
+cron = "*/5 * * * *"
+timeout = "10s"
+notify_on_failure = false
+retries = 2

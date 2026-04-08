@@ -92,3 +92,54 @@ The `timeout` field accepts the following suffixes:
 | *(none)* | Seconds | `"60"` → 60 seconds |
 
 If a task exceeds its timeout, the process is killed and the run status is set to `timeout`.
+
+---
+
+## Quoting & Escaping in Commands
+
+Commands in TOML can use **double-quoted** or **single-quoted** strings. This matters when your command contains backslashes (Windows paths) or embedded quotes.
+
+### The problem
+
+TOML double-quoted strings treat `\` as an escape character. Only specific sequences like `\n`, `\t`, `\\`, and `\"` are valid. Writing a raw Windows path like `"echo C:\Data"` causes a **parse error** because `\D` is not a valid TOML escape.
+
+### Solution: use single-quoted strings
+
+TOML single-quoted strings are **literal** — no escape processing. Backslashes and double quotes are kept as-is:
+
+```toml
+# ✅ Correct — single quotes, backslashes are literal
+command = 'robocopy C:\Data D:\Backup /MIR'
+
+# ✅ Correct — embedded double quotes work too
+command = 'copilot -p "execute @ .github\prompts\my-task.prompt.md" --autopilot'
+```
+
+### Alternative: escape backslashes in double-quoted strings
+
+If you prefer double quotes, double every backslash (`\\`):
+
+```toml
+# ✅ Correct — escaped backslashes in double quotes
+command = "robocopy C:\\Data D:\\Backup /MIR"
+
+# ❌ WRONG — \D and \B are invalid TOML escapes
+command = "robocopy C:\Data D:\Backup /MIR"
+```
+
+### Quick reference
+
+| TOML syntax | Backslash behavior | Best for |
+|---|---|---|
+| `'single quotes'` | Literal (no escaping) | Windows paths, commands with `"` |
+| `"double quotes"` | `\\` → `\`, `\"` → `"` | Simple commands without backslashes |
+
+### Real-world example
+
+```toml
+[[task]]
+name = "run-copilot-prompt"
+command = 'copilot -p "execute @ .github\prompts\echo-test.prompt.md" --allow-all --autopilot --model claude-sonnet-4.6'
+cron = "0 7 * * *"
+timeout = "1h"
+```

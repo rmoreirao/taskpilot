@@ -98,10 +98,84 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
 
     ui.add_space(12.0);
 
-    // Run Now button
+    // Running status badge
+    let is_running = app.running_tasks.contains_key(task_name);
+    if is_running {
+        ui.horizontal(|ui| {
+            let elapsed = app
+                .running_tasks
+                .get(task_name)
+                .map(|started| started.elapsed().as_secs_f64())
+                .unwrap_or(0.0);
+            ui.label(
+                egui::RichText::new(format!("● Running — {:.1}s elapsed", elapsed))
+                    .color(BLUE)
+                    .strong(),
+            );
+        });
+        ui.add_space(8.0);
+    }
+
+    // Run Now button (disabled while running)
     let task_name_owned = task_name.to_string();
-    if ui.button("▶ Run Now").clicked() {
-        app.trigger_task(&task_name_owned);
+    ui.add_enabled_ui(!is_running, |ui| {
+        if ui.button("▶ Run Now").clicked() {
+            app.trigger_task(&task_name_owned);
+        }
+    });
+
+    // Live output section with refresh controls
+    if is_running {
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(8.0);
+
+        // Refresh toolbar
+        ui.horizontal(|ui| {
+            ui.strong("Live Output");
+            ui.add_space(16.0);
+
+            if ui.button("🔄 Refresh").clicked() {
+                app.force_log_refresh = true;
+            }
+
+            ui.add_space(16.0);
+            ui.label(egui::RichText::new("Auto-refresh:").small().color(MUTED));
+            let slider = egui::Slider::new(&mut app.log_refresh_interval_secs, 1.0..=30.0)
+                .step_by(1.0)
+                .suffix("s");
+            ui.add(slider);
+        });
+
+        ui.add_space(4.0);
+
+        let live_content = app.live_logs.get(task_name).cloned().unwrap_or_default();
+
+        if live_content.is_empty() {
+            ui.label(egui::RichText::new("Waiting for output…").color(MUTED));
+        } else {
+            let display_text: String = {
+                let lines: Vec<&str> = live_content.lines().collect();
+                if lines.len() > 200 {
+                    lines[lines.len() - 200..].join("\n")
+                } else {
+                    live_content.clone()
+                }
+            };
+
+            egui::Frame::none()
+                .fill(egui::Color32::from_gray(20))
+                .rounding(4.0)
+                .inner_margin(egui::Margin::same(8.0))
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .max_height(300.0)
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new(&display_text).monospace().small());
+                        });
+                });
+        }
     }
 
     ui.add_space(12.0);

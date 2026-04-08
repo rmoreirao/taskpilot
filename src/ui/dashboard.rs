@@ -133,8 +133,19 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
                     ui.label(egui::RichText::new("— Never run").color(MUTED));
                 }
 
-                // Duration
-                if let Some(run) = &task.last_run {
+                // Duration (live elapsed for running tasks)
+                if task.is_running {
+                    if let Some(started) = task.running_since {
+                        let secs = started.elapsed().as_secs_f64();
+                        ui.label(
+                            egui::RichText::new(format!("{:.1}s", secs))
+                                .monospace()
+                                .color(BLUE),
+                        );
+                    } else {
+                        ui.label(egui::RichText::new("…").color(BLUE));
+                    }
+                } else if let Some(run) = &task.last_run {
                     if let Some(ms) = run.duration_ms {
                         let secs = ms as f64 / 1000.0;
                         ui.label(
@@ -151,7 +162,14 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
 
                 // Actions
                 if task.is_running {
-                    ui.label(egui::RichText::new("⏳ Running...").color(MUTED));
+                    // Show last line of live output as a snippet
+                    if let Some(log) = app.live_logs.get(&task.name) {
+                        let last_line = log.lines().last().unwrap_or("Running...");
+                        let snippet: String = last_line.chars().take(60).collect();
+                        ui.label(egui::RichText::new(format!("⏳ {}", snippet)).small().color(BLUE));
+                    } else {
+                        ui.label(egui::RichText::new("⏳ Running...").color(MUTED));
+                    }
                 } else if ui.button("▶ Run").clicked() {
                     trigger_task = Some(task.name.clone());
                 }

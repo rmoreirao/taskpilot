@@ -1,0 +1,14 @@
+# Config with a task that always fails.
+
+[general]
+log_level = "info"
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "fail-task"
+command = "cmd /c exit 1"
+cron = "*/5 * * * *"
+timeout = "10s"
+notify_on_failure = false

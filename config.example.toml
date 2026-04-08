@@ -28,3 +28,11 @@ command = "date /t"
 cron = "*/2 * * * *"
 timeout = "10s"
 notify_on_failure = true
+
+# Commands with Windows paths or embedded quotes: use single-quoted TOML strings
+# so that backslashes are treated literally (no escape processing).
+# [[task]]
+# name = "example-backup"
+# command = 'robocopy C:\Data D:\Backup /MIR'
+# cron = "0 2 * * *"
+# timeout = "10m"

@@ -22,12 +22,18 @@ if (-not (Test-Path $DeployDir)) {
     Write-Host "Created deploy directory: $DeployDir"
 }
 
-# Copy the exe
+# Copy the executables
 $source = "target\release\taskpilot.exe"
 $dest = Join-Path $DeployDir "taskpilot.exe"
 
 Copy-Item -Path $source -Destination $dest -Force
 Write-Host "Copied taskpilot.exe -> $dest" -ForegroundColor Green
+
+$cliSource = "target\release\taskpilot-cli.exe"
+$cliDest = Join-Path $DeployDir "taskpilot-cli.exe"
+
+Copy-Item -Path $cliSource -Destination $cliDest -Force
+Write-Host "Copied taskpilot-cli.exe -> $cliDest" -ForegroundColor Green
 
 # Copy sample config if no config exists yet
 $configDir = Join-Path $DeployDir ".taskpilot"

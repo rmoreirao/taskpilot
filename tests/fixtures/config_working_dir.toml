@@ -1,0 +1,16 @@
+# Config with a task that uses working_dir.
+# The command prints the current directory so we can verify it.
+
+[general]
+log_level = "info"
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "dir-task"
+command = "cd"
+cron = "*/5 * * * *"
+timeout = "10s"
+notify_on_failure = false
+# working_dir is set dynamically in tests via a generated config

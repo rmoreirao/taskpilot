@@ -1,0 +1,23 @@
+# Basic test config — based on config.example.toml
+# Tasks that should always pass.
+
+[general]
+log_level = "info"
+max_log_retention_days = 7
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "echo-hello"
+command = "echo Hello from TaskPilot!"
+cron = "*/5 * * * *"
+timeout = "30s"
+notify_on_failure = false
+
+[[task]]
+name = "echo-date"
+command = "echo 2024-01-01"
+cron = "*/2 * * * *"
+timeout = "10s"
+notify_on_failure = false
