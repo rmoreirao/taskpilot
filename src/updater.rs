@@ -68,8 +68,8 @@ pub struct ReleaseInfo {
     pub cli_asset_url: Option<String>,
 }
 
-/// Check the GitHub API for the latest release.
-pub fn check_latest_release() -> Result<ReleaseInfo, String> {
+/// Check the GitHub API for the latest release. Returns `None` if no releases exist.
+pub fn check_latest_release() -> Result<Option<ReleaseInfo>, String> {
     let url = format!("{}/repos/{}/releases/latest", GITHUB_API_BASE, GITHUB_REPO);
 
     let client = reqwest::blocking::Client::builder()
@@ -85,7 +85,7 @@ pub fn check_latest_release() -> Result<ReleaseInfo, String> {
         .map_err(|e| format!("Failed to fetch release info: {}", e))?;
 
     if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Err("No releases found".to_string());
+        return Ok(None);
     }
 
     if !response.status().is_success() {
@@ -129,13 +129,13 @@ pub fn check_latest_release() -> Result<ReleaseInfo, String> {
         }
     }
 
-    Ok(ReleaseInfo {
+    Ok(Some(ReleaseInfo {
         version,
         tag_name,
         html_url,
         gui_asset_url,
         cli_asset_url,
-    })
+    }))
 }
 
 /// Compare two semver version strings. Returns true if `remote` is newer than `local`.
@@ -153,11 +153,14 @@ pub fn is_newer_version(local: &str, remote: &str) -> bool {
 
 /// Check for updates and return the new state.
 pub fn check_for_update() -> Result<UpdateState, String> {
-    let release = check_latest_release()?;
-
     let mut state = UpdateState {
         last_check: Some(Utc::now()),
         ..Default::default()
+    };
+
+    let release = match check_latest_release()? {
+        Some(r) => r,
+        None => return Ok(state), // No releases exist yet — not an error
     };
 
     if is_newer_version(CURRENT_VERSION, &release.version) {
