@@ -40,8 +40,6 @@ impl TrayManager {
         let (tx, rx) = mpsc::channel();
 
         // Listen for tray menu events (Quit) on a background thread
-        let tx_menu = tx.clone();
-        let ctx_menu = ctx.clone();
         let menu_log_path = log_path.clone();
         std::thread::spawn(move || {
             let _ = append_debug_log(&menu_log_path, "tray", "Tray menu listener started");
@@ -54,21 +52,15 @@ impl TrayManager {
                             &format!("Tray menu event received: {:?}", event.id),
                         );
                         if event.id == quit_id {
-                            if tx_menu.send(TrayEvent::Quit).is_err() {
-                                let _ = append_debug_log(
-                                    &menu_log_path,
-                                    "tray",
-                                    "Failed to queue quit event; stopping menu listener",
-                                );
-                                break;
-                            }
                             let _ = append_debug_log(
                                 &menu_log_path,
                                 "tray",
-                                "Queued quit event and waking viewport",
+                                "Quit menu clicked; terminating process",
                             );
-                            ctx_menu.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                            ctx_menu.request_repaint();
+                            // Force-exit immediately. The UI event loop may not
+                            // be running when the window is hidden, so we cannot
+                            // rely on it to process a graceful quit.
+                            std::process::exit(0);
                         }
                     }
                     Err(err) => {

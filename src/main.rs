@@ -31,8 +31,12 @@ fn main() -> eframe::Result<()> {
         .map(|pair| std::path::PathBuf::from(&pair[1]))
         .collect();
 
-    let workspace_dir = std::env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+    let workspace_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        })
         .join(".taskpilot");
 
     let workspace = Arc::new(Workspace::new(workspace_dir));

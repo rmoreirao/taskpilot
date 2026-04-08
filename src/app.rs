@@ -273,8 +273,9 @@ impl TaskPilotApp {
     pub fn quit_app(&mut self) {
         let _ = self
             .workspace
-            .append_debug_log("app", "Quit requested; setting should_quit");
-        self.should_quit = true;
+            .append_debug_log("app", "Quit requested; shutting down");
+        let _ = self.scheduler.cmd_tx.send(SchedulerCommand::Shutdown);
+        std::process::exit(0);
     }
 
     fn process_tray_events(&mut self, ctx: &egui::Context) {
@@ -317,16 +318,17 @@ impl eframe::App for TaskPilotApp {
                 let _ = self
                     .workspace
                     .append_debug_log("app", "Close requested while quitting; allowing shutdown");
-                // Actually quit the app
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                // Let the close proceed by not cancelling it
             } else {
                 let _ = self.workspace.append_debug_log(
                     "app",
                     "Close requested from window chrome; minimizing to tray",
                 );
-                // Minimize instead of hiding so the native event loop keeps pumping tray events.
+                // Hide the window so it disappears from the taskbar; the tray icon
+                // listeners run on background threads and wake the event loop via
+                // ctx.request_repaint(), so events keep flowing while hidden.
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             }
         }
 

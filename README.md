@@ -27,7 +27,7 @@ TaskPilot is a simple, no-fuss task scheduler for Windows. If you have scripts, 
 ## Features
 
 - **Cron scheduling** — Use familiar `*/5 * * * *` syntax to define when tasks run
-- **System tray** — Runs silently in the background; click the tray icon to open the dashboard
+- **Minimize to tray** — Closing the window hides it to the system tray; click the tray icon to restore
 - **Live dashboard** — See every task's status, last run time, exit code, and stdout/stderr at a glance
 - **Desktop notifications** — Get a Windows notification when a task fails or recovers
 - **Retries & timeouts** — Configure per-task retry counts and maximum run durations
@@ -171,7 +171,7 @@ External directories are **watched for changes** — when `.toml` files are adde
 taskpilot.exe
 ```
 
-The main window opens. Minimizing it hides it to the system tray.
+The main window opens. Closing the window hides it to the system tray (it does not quit the app).
 
 ### Launch minimized (recommended for auto-start)
 
@@ -219,6 +219,20 @@ cargo build --release
 
 The binary will be at `target\release\taskpilot.exe`.
 
+### Deploy to a target folder
+
+A convenience script is provided to build and deploy the exe to a target directory (default `D:\apps\taskpilot\`):
+
+```powershell
+.\deploy.ps1                              # deploy to default location
+.\deploy.ps1 -DeployDir "C:\MyApps\tp"    # deploy to a custom location
+```
+
+The script:
+- Builds in release mode
+- Copies `taskpilot.exe` to the target directory
+- **Never overwrites** an existing `config.toml`, preserving your settings
+
 ---
 
 ## Project Structure
@@ -229,16 +243,18 @@ taskpilot/
 │   ├── main.rs           # Entry point
 │   ├── app.rs            # App state and main event loop
 │   ├── config.rs         # Config structs and TOML loading
-│   ├── engine/           # (proposed) Scheduler loop and process executor
-│   ├── platform/         # (proposed) System tray and Windows autostart
-│   ├── storage/          # (proposed) Run logs and scheduler state persistence
+│   ├── scheduler.rs      # Cron-based task scheduling loop
+│   ├── executor.rs       # Command execution, timeouts, retries
+│   ├── workspace.rs      # Run logs and scheduler state persistence
+│   ├── tray.rs           # System tray icon and menu
+│   ├── autostart.rs      # Windows startup registration
+│   ├── task_sources.rs   # External task directory loading
 │   └── ui/               # egui dashboard, sidebar, settings
-├── assets/               # App icon
+├── assets/               # App icon (embedded at build time)
 ├── config.example.toml   # Annotated example configuration
+├── deploy.ps1            # Build & deploy script
 └── Cargo.toml
 ```
-
-> **Note:** The `engine/`, `platform/`, and `storage/` sub-modules represent the proposed structure. Currently these files live flat in `src/`.
 
 ---
 
