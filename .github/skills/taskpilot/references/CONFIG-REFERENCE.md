@@ -6,9 +6,9 @@ Full field-by-field reference for `.taskpilot/config.toml`.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `log_level` | string | `"info"` | Log verbosity. One of: `"debug"`, `"info"`, `"warn"`, `"error"`. |
-| `max_log_retention_days` | integer | `30` | Days to keep task run log files before pruning. |
-| `start_with_windows` | boolean | `false` | Register TaskPilot to launch automatically at login via the Windows Run registry key. Launches with `--minimized`. |
+| `log_level` | string | `"info"` | Log verbosity. One of: `"debug"`, `"info"`, `"warn"`, `"error"`. *(Parsed but not yet enforced at runtime — reserved for future use.)* |
+| `max_log_retention_days` | integer | `30` | Days to keep task run log files before pruning. *(Parsed but not yet enforced at runtime — reserved for future use.)* |
+| `start_with_windows` | boolean | `false` | Persisted state of the auto-start toggle. Changed via the **Settings** UI checkbox, which registers/unregisters the Windows Run registry key. This field is **not** applied automatically on startup or config reload. |
 | `task_sources` | array of strings | `[]` | List of external directories containing `.toml` task definitions. Paths support `~/` expansion. Merged with CLI `--task-dir` arguments. |
 
 ### Example
@@ -28,9 +28,9 @@ task_sources = ["C:\\SharedTasks", "~/team-tasks"]
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `enabled` | boolean | `true` | Master switch for all desktop notifications. |
-| `on_failure` | boolean | `true` | Notify when a task exits with a non-zero code or times out. |
-| `on_recovery` | boolean | `true` | Notify when a previously-failed task succeeds again. |
-| `sound` | boolean | `false` | Play a sound with notifications. |
+| `on_failure` | boolean | `true` | Notify when a task exits with a non-zero code or times out. *(Parsed but not yet wired — currently, failure notifications are controlled by the per-task `notify_on_failure` field and the global `enabled` switch.)* |
+| `on_recovery` | boolean | `true` | Notify when a previously-failed task succeeds again. *(Parsed but not yet wired — reserved for future use.)* |
+| `sound` | boolean | `false` | Play a sound with notifications. *(Parsed but not yet wired — reserved for future use.)* |
 
 ### Example
 

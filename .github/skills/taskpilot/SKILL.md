@@ -123,7 +123,8 @@ See [TASK-FORMATS.md](references/TASK-FORMATS.md) for details.
 External directories are **watched for changes** — when `.toml` files are added, modified, or deleted,
 tasks reload automatically. External tasks appear in the dashboard with a 📁 badge and are read-only.
 
-Task names must be unique across all sources. Duplicates cause an error at load time.
+Task names must be unique across all sources. If duplicates are found, TaskPilot logs an error
+and falls back to local tasks only (external sources are skipped). The app still starts.
 
 ## Common Cron Expressions
 
@@ -137,9 +138,19 @@ Task names must be unique across all sources. Duplicates cause an error at load 
 
 ## Auto-Start with Windows
 
-Set `start_with_windows = true` in `[general]` to register TaskPilot in the Windows
-`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry key. It will launch with
-`--minimized` on login.
+Toggle the **Start with Windows** checkbox in the **Settings** view to register/unregister
+TaskPilot in the Windows `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry key.
+The `start_with_windows` field in `config.toml` reflects the persisted state of this toggle —
+it is **not** applied automatically on startup or config reload; use the UI to change it.
+
+## Troubleshooting
+
+- **Only example tasks showing?** If `config.toml` fails to parse, TaskPilot silently falls back
+  to default example tasks. Check the file for TOML syntax errors.
+- **External tasks not loading?** If any task name collides across sources, all external sources
+  are skipped. Check `debug/app.log` for error messages.
+- **Config changes not taking effect?** Click **Reload Config** in the Settings view. External
+  source directories are watched automatically, but `config.toml` itself requires a manual reload.
 
 ## Building from Source
 

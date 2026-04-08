@@ -68,7 +68,8 @@ CLI and config sources are merged (duplicates removed by path).
 ### Name uniqueness
 
 Task names must be globally unique across all sources. If a task name appears in more than one
-source (local config or any external directory), TaskPilot reports an error and refuses to load.
+source (local config or any external directory), TaskPilot logs an error and **falls back to
+local tasks only** — external sources are skipped. The app still starts.
 
 ---
 
