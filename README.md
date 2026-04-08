@@ -2,7 +2,7 @@
 
 > **A lightweight task scheduler for Windows** — schedule scripts and commands with cron expressions, monitor them from a clean dashboard, and let it run quietly in your system tray.
 
-[![Platform](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/your-org/taskpilot/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/rmoreirao/taskpilot/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange)](https://www.rust-lang.org/)
 
@@ -34,6 +34,7 @@ TaskPilot is a simple, no-fuss task scheduler for Windows. If you have scripts, 
 - **Retries & timeouts** — Configure per-task retry counts and maximum run durations
 - **Run history** — Drill into any task to browse a full log of past executions
 - **Auto-start with Windows** — Optionally register TaskPilot to launch at login
+- **Auto-update** — Checks GitHub for new releases every 24 hours; download and apply with one click from the dashboard or via `taskpilot-cli --update`
 
 ---
 
@@ -41,7 +42,7 @@ TaskPilot is a simple, no-fuss task scheduler for Windows. If you have scripts, 
 
 ### Option 1 — Download release (recommended)
 
-1. Go to the [Releases page](https://github.com/your-org/taskpilot/releases) and download `taskpilot.exe`.
+1. Go to the [Releases page](https://github.com/rmoreirao/taskpilot/releases) and download `taskpilot.exe`.
 2. Place it anywhere on your machine (e.g. `C:\Tools\taskpilot\taskpilot.exe`).
 3. Double-click to run. TaskPilot will create a `.taskpilot\` folder next to the executable with a starter config.
 
@@ -93,6 +94,14 @@ A fully annotated example is provided in [`config.example.toml`](config.example.
 | `on_failure` | `true` | Notify when a task exits with a non-zero code or times out |
 | `on_recovery` | `true` | Notify when a previously-failed task succeeds again |
 | `sound` | `false` | Play a sound with notifications |
+
+### `[updates]`
+
+| Field | Default | Description |
+|---|---|---|
+| `auto_check` | `true` | Check GitHub for new releases every 24 hours |
+
+When an update is found, the dashboard shows a banner and the **Settings** view lets you download and apply with one click. You can also update from the command line with `taskpilot-cli --update`.
 
 ### `[[task]]`
 
@@ -219,6 +228,12 @@ taskpilot-cli --run my-backup
 
 :: Run with additional external task sources
 taskpilot-cli --task-dir C:\SharedTasks --run team-cleanup
+
+:: Check if a newer version is available
+taskpilot-cli --check-update
+
+:: Download and apply the latest update
+taskpilot-cli --update
 ```
 
 The CLI binary:
@@ -248,6 +263,7 @@ TaskPilot stores all runtime data in `.taskpilot/` next to the executable:
 .taskpilot/
 ├── config.toml                        # Main configuration file
 ├── state.json                         # Scheduler state (last/next run times)
+├── update-state.json                  # Auto-update state (last check, available version)
 ├── runs/                              # Task run history
 │   └── <task-name>/                   # One directory per task
 │       └── YYYY-MM-DDTHHMMSS.json    # Individual run result
@@ -271,7 +287,7 @@ The **debug log** is an append-only text file with lines in the format `[ISO-860
 ### Steps
 
 ```bat
-git clone https://github.com/your-org/taskpilot.git
+git clone https://github.com/rmoreirao/taskpilot.git
 cd taskpilot
 cargo build --release
 ```
@@ -310,6 +326,7 @@ taskpilot/
 │   ├── tray.rs           # System tray icon and menu
 │   ├── autostart.rs      # Windows startup registration
 │   ├── task_sources.rs   # External task directory loading
+│   ├── updater.rs        # Auto-update via GitHub releases
 │   └── ui/               # egui dashboard, sidebar, settings
 ├── assets/               # App icon (embedded at build time)
 ├── config.example.toml   # Annotated example configuration

@@ -44,6 +44,21 @@ sound = false
 
 ---
 
+## `[updates]`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `auto_check` | boolean | `true` | Automatically check GitHub for new releases every 24 hours. When an update is found, the dashboard shows a banner and the Settings view offers one-click download and apply. |
+
+### Example
+
+```toml
+[updates]
+auto_check = true
+```
+
+---
+
 ## `[[task]]`
 
 Each task is a repeatable `[[task]]` table. You can define as many as needed.

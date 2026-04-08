@@ -65,6 +65,7 @@ No restart is needed. External task source directories are watched automatically
 |---|---|
 | `--minimized` | Start without showing the window (useful for auto-start at login) |
 | `--task-dir <path>` | Load additional task definitions from `<path>`. Repeatable. |
+| `--version` | Print the version and exit |
 
 ### CLI binary (`taskpilot-cli.exe`)
 
@@ -73,6 +74,9 @@ No restart is needed. External task source directories are watched automatically
 | `--list` | Print all configured task names with their source and cron schedule |
 | `--run <name>` | Execute a task immediately, print output, and exit with the task's exit code |
 | `--task-dir <path>` | Load additional task definitions from `<path>`. Repeatable. |
+| `--check-update` | Check GitHub for a newer release and print the result |
+| `--update` | Download and apply the latest release, then exit |
+| `--version` | Print the version and exit |
 
 Examples:
 
@@ -88,6 +92,12 @@ taskpilot-cli --run my-backup
 
 rem Test an external task
 taskpilot-cli --task-dir C:\SharedTasks --run team-cleanup
+
+rem Check for updates
+taskpilot-cli --check-update
+
+rem Download and apply the latest update
+taskpilot-cli --update
 ```
 
 The CLI binary shares the same `.taskpilot/` workspace and config as the GUI.
@@ -104,6 +114,7 @@ TaskPilot stores all runtime data in `.taskpilot/` next to the executable:
 .taskpilot/
 ├── config.toml          # Main configuration file
 ├── state.json           # Scheduler state (last/next run times)
+├── update-state.json    # Auto-update state (last check, available version)
 ├── runs/                # Task run history
 │   └── <task-name>/     # One directory per task
 │       └── YYYY-MM-DDTHHMMSS.json   # Individual run results
@@ -117,6 +128,7 @@ TaskPilot stores all runtime data in `.taskpilot/` next to the executable:
 |---|---|
 | `[general]` | App-level settings: log level, retention, auto-start, external task sources |
 | `[notifications]` | Desktop notification preferences |
+| `[updates]` | Auto-update preferences (check frequency, enable/disable) |
 | `[[task]]` | Repeatable — one entry per scheduled task |
 
 For the full field-by-field reference, see [CONFIG-REFERENCE.md](references/CONFIG-REFERENCE.md).

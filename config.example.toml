@@ -15,6 +15,12 @@ on_failure = true
 on_recovery = true
 sound = false
 
+[updates]
+# Check GitHub for new releases every 24 hours.
+# When an update is found, the dashboard shows a banner and the Settings view
+# offers a one-click download and apply.
+auto_check = true
+
 [[task]]
 name = "example-hello"
 command = "echo Hello from TaskPilot!"

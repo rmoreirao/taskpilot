@@ -38,6 +38,7 @@ TaskPilot is a single-binary Windows GUI app (Rust + eframe/egui) that schedules
 | `executor.rs` | Command spawning, `parse_duration()` for `Ns`/`Nm`/`Nh` strings, retry loop |
 | `workspace.rs` | File-based persistence: run logs as JSON under `runs/<task>/`, scheduler state as `state.json`, debug log |
 | `task_sources.rs` | External `.toml` directory scanning, dual format support (multi-task `[[task]]` / single-task flat), file watching with debounced reload |
+| `updater.rs` | Auto-update via GitHub releases: check API, compare semver, download binaries, rename-to-`.old` replacement strategy |
 | `autostart.rs` | Windows registry `HKCU\...\Run` integration, non-Windows stubs |
 | `tray.rs` | Tray icon + menu, background listener threads |
 | `ui/` | `mod.rs` dispatches to `dashboard`, `task_detail`, `settings`, `sidebar` |
