@@ -1,4 +1,6 @@
 use crate::config::TaskConfig;
+use crate::logging::LogLevel;
+use crate::workspace::Workspace;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -38,12 +40,16 @@ struct MultiTaskFile {
 }
 
 /// Load all `.toml` files from a directory, returning tasks with their source file.
-pub fn load_dir(dir: &Path) -> Result<Vec<(TaskConfig, PathBuf)>, String> {
+pub fn load_dir(dir: &Path, workspace: Option<&Workspace>) -> Result<Vec<(TaskConfig, PathBuf)>, String> {
     if !dir.exists() {
         return Err(format!("Task source directory does not exist: {}", dir.display()));
     }
     if !dir.is_dir() {
         return Err(format!("Task source path is not a directory: {}", dir.display()));
+    }
+
+    if let Some(ws) = workspace {
+        ws.log_task(LogLevel::Info, "sources", &format!("Scanning external task source: {}", dir.display()));
     }
 
     let entries = std::fs::read_dir(dir)
@@ -61,16 +67,39 @@ pub fn load_dir(dir: &Path) -> Result<Vec<(TaskConfig, PathBuf)>, String> {
             continue;
         }
 
+        if let Some(ws) = workspace {
+            ws.log_task(LogLevel::Debug, "sources", &format!("Found TOML file: {}", path.display()));
+        }
+
         match load_toml_file(&path) {
             Ok(file_tasks) => {
+                if let Some(ws) = workspace {
+                    let format = if file_tasks.len() > 1 { "multi-task" } else { "single-task" };
+                    ws.log_task(
+                        LogLevel::Debug,
+                        "sources",
+                        &format!("Parsed {} format from {}: {} task(s)", format, path.display(), file_tasks.len()),
+                    );
+                }
                 for task in file_tasks {
                     tasks.push((task, path.clone()));
                 }
             }
             Err(e) => {
+                if let Some(ws) = workspace {
+                    ws.log_task(LogLevel::Warn, "sources", &format!("Skipping {}: {}", path.display(), e));
+                }
                 eprintln!("Warning: skipping {}: {}", path.display(), e);
             }
         }
+    }
+
+    if let Some(ws) = workspace {
+        ws.log_task(
+            LogLevel::Info,
+            "sources",
+            &format!("Loaded {} tasks from external source {}", tasks.len(), dir.display()),
+        );
     }
 
     Ok(tasks)
@@ -106,6 +135,7 @@ pub fn load_all(
     local_tasks: &[TaskConfig],
     config_path: &Path,
     source_dirs: &[PathBuf],
+    workspace: Option<&Workspace>,
 ) -> Result<(Vec<TaskConfig>, HashMap<String, TaskSourceInfo>), String> {
     let mut all_tasks: Vec<TaskConfig> = Vec::new();
     let mut source_map: HashMap<String, TaskSourceInfo> = HashMap::new();
@@ -113,10 +143,11 @@ pub fn load_all(
     // Register local tasks
     for task in local_tasks {
         if source_map.contains_key(&task.name) {
-            return Err(format!(
-                "Duplicate task name '{}' in local config",
-                task.name
-            ));
+            let msg = format!("Duplicate task name '{}' in local config", task.name);
+            if let Some(ws) = workspace {
+                ws.log_task(LogLevel::Error, "sources", &msg);
+            }
+            return Err(msg);
         }
         source_map.insert(
             task.name.clone(),
@@ -129,9 +160,10 @@ pub fn load_all(
     }
 
     // Load and register external tasks
+    let mut external_count = 0usize;
     for dir in source_dirs {
         let dir_path = PathBuf::from(expand_home(&dir.to_string_lossy()));
-        let external_tasks = load_dir(&dir_path)?;
+        let external_tasks = load_dir(&dir_path, workspace)?;
 
         for (task, file_path) in external_tasks {
             if let Some(existing) = source_map.get(&task.name) {
@@ -139,12 +171,16 @@ pub fn load_all(
                     TaskOrigin::Local => "local config".to_string(),
                     TaskOrigin::External { dir } => format!("{}", dir.display()),
                 };
-                return Err(format!(
+                let msg = format!(
                     "Duplicate task name '{}': defined in {} and {}",
                     task.name,
                     existing_source,
                     file_path.display(),
-                ));
+                );
+                if let Some(ws) = workspace {
+                    ws.log_task(LogLevel::Error, "sources", &msg);
+                }
+                return Err(msg);
             }
             source_map.insert(
                 task.name.clone(),
@@ -156,7 +192,21 @@ pub fn load_all(
                 },
             );
             all_tasks.push(task);
+            external_count += 1;
         }
+    }
+
+    if let Some(ws) = workspace {
+        ws.log_task(
+            LogLevel::Info,
+            "sources",
+            &format!(
+                "Task merge complete: {} local + {} external = {} tasks",
+                local_tasks.len(),
+                external_count,
+                all_tasks.len(),
+            ),
+        );
     }
 
     Ok((all_tasks, source_map))

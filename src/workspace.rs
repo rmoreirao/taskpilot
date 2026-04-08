@@ -1,3 +1,4 @@
+use crate::logging::{AtomicLogLevel, LogLevel};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
@@ -39,11 +40,19 @@ pub struct TaskScheduleState {
 
 pub struct Workspace {
     pub root: PathBuf,
+    log_level: AtomicLogLevel,
 }
 
 impl Workspace {
     pub fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self {
+            root,
+            log_level: AtomicLogLevel::default(),
+        }
+    }
+
+    pub fn set_log_level(&self, level: LogLevel) {
+        self.log_level.set(level);
     }
 
     pub fn ensure_dirs(&self) -> Result<(), String> {
@@ -71,6 +80,18 @@ impl Workspace {
 
     pub fn debug_log_path(&self) -> PathBuf {
         self.debug_dir().join("app.log")
+    }
+
+    pub fn task_log_path(&self) -> PathBuf {
+        self.debug_dir().join("task-runs.log")
+    }
+
+    /// Write a level-gated log entry to the task-runs.log file.
+    pub fn log_task(&self, level: LogLevel, component: &str, message: &str) {
+        if level > self.log_level.get() {
+            return;
+        }
+        let _ = append_leveled_log(&self.task_log_path(), level, component, message);
     }
 
     pub fn task_runs_dir(&self, task_name: &str) -> PathBuf {
@@ -187,6 +208,35 @@ pub fn append_debug_log(path: &Path, component: &str, message: &str) -> Result<(
 
     file.write_all(line.as_bytes())
         .map_err(|e| format!("Failed to write debug log: {}", e))
+}
+
+pub fn append_leveled_log(
+    path: &Path,
+    level: LogLevel,
+    component: &str,
+    message: &str,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create log directory: {}", e))?;
+    }
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("Failed to open log: {}", e))?;
+
+    let line = format!(
+        "[{}] [{}] [{}] {}\n",
+        Utc::now().to_rfc3339(),
+        level.label(),
+        component,
+        message
+    );
+
+    file.write_all(line.as_bytes())
+        .map_err(|e| format!("Failed to write log: {}", e))
 }
 
 fn sanitize_filename(name: &str) -> String {

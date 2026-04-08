@@ -3,6 +3,7 @@ use crate::scheduler::{SchedulerCommand, SchedulerEvent, SchedulerHandle, start_
 use crate::single_instance::SingleInstanceGuard;
 use crate::task_sources::{self, TaskSourceInfo};
 use crate::tray::{TrayEvent, TrayManager};
+use crate::updater::{self, UpdateState};
 use crate::workspace::{TaskRun, RunStatus, Workspace};
 use eframe::egui;
 use std::collections::HashMap;
@@ -36,6 +37,17 @@ pub struct NotificationItem {
     pub time: chrono::DateTime<chrono::Utc>,
 }
 
+/// Tracks the state of an in-progress update operation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdateProgress {
+    Idle,
+    Checking,
+    Available(String),
+    Downloading,
+    ReadyToRestart(String),
+    Error(String),
+}
+
 pub struct TaskPilotApp {
     pub(crate) workspace: Arc<Workspace>,
     pub(crate) config: AppConfig,
@@ -60,6 +72,13 @@ pub struct TaskPilotApp {
     pub(crate) log_refresh_interval_secs: f32,
     last_log_refresh: Instant,
     pub(crate) force_log_refresh: bool,
+    // Update state
+    pub(crate) update_state: UpdateState,
+    pub(crate) update_progress: UpdateProgress,
+    pub(crate) update_banner_dismissed: bool,
+    update_check_rx: Option<std::sync::mpsc::Receiver<Result<UpdateState, String>>>,
+    update_apply_rx: Option<std::sync::mpsc::Receiver<Result<updater::UpdateResult, String>>>,
+    last_update_check: Option<Instant>,
 }
 
 impl TaskPilotApp {
@@ -77,6 +96,20 @@ impl TaskPilotApp {
 
         // Set up file watcher for external source directories
         let (watcher, watcher_rx) = Self::create_watcher(&source_dirs);
+
+        // Clean up old binaries from a previous update
+        updater::cleanup_old_binaries();
+
+        // Load persisted update state
+        let update_state_path = updater::update_state_path(&workspace.root);
+        let update_state = UpdateState::load(&update_state_path);
+        let update_progress = if update_state.has_update() {
+            UpdateProgress::Available(
+                update_state.available_version.clone().unwrap_or_default(),
+            )
+        } else {
+            UpdateProgress::Idle
+        };
 
         let mut app = Self {
             workspace,
@@ -102,8 +135,20 @@ impl TaskPilotApp {
             log_refresh_interval_secs: 2.0,
             last_log_refresh: Instant::now(),
             force_log_refresh: false,
+            update_state,
+            update_progress,
+            update_banner_dismissed: false,
+            update_check_rx: None,
+            update_apply_rx: None,
+            last_update_check: None,
         };
         app.refresh_task_statuses();
+
+        // Trigger an initial update check if auto_check is enabled and it's time
+        if app.config.updates.auto_check && app.update_state.needs_check(24) {
+            app.trigger_update_check();
+        }
+
         let _ = app
             .workspace
             .append_debug_log("app", "TaskPilot application initialized");
@@ -246,6 +291,7 @@ impl TaskPilotApp {
                     &new_config.tasks,
                     &self.workspace.config_path(),
                     &source_dirs,
+                    Some(&self.workspace),
                 ) {
                     Ok((merged_tasks, source_metadata)) => {
                         let mut effective_config = new_config;
@@ -293,6 +339,136 @@ impl TaskPilotApp {
         std::process::exit(0);
     }
 
+    /// Start a background update check.
+    pub(crate) fn trigger_update_check(&mut self) {
+        if matches!(self.update_progress, UpdateProgress::Checking | UpdateProgress::Downloading) {
+            return; // Already in progress
+        }
+        self.update_progress = UpdateProgress::Checking;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.update_check_rx = Some(rx);
+        self.last_update_check = Some(Instant::now());
+
+        std::thread::spawn(move || {
+            let result = updater::check_for_update();
+            let _ = tx.send(result);
+        });
+
+        let _ = self
+            .workspace
+            .append_debug_log("updater", "Update check started");
+    }
+
+    /// Start downloading and applying an available update.
+    pub(crate) fn trigger_update_apply(&mut self) {
+        if !self.update_state.has_update() {
+            return;
+        }
+        self.update_progress = UpdateProgress::Downloading;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.update_apply_rx = Some(rx);
+
+        let state = self.update_state.clone();
+        std::thread::spawn(move || {
+            let result = updater::download_and_apply(&state);
+            let _ = tx.send(result);
+        });
+
+        let _ = self
+            .workspace
+            .append_debug_log("updater", "Update download started");
+    }
+
+    /// Poll for update check/apply results.
+    fn process_update_events(&mut self) {
+        // Check for update check results
+        if let Some(rx) = &self.update_check_rx {
+            if let Ok(result) = rx.try_recv() {
+                self.update_check_rx = None;
+                match result {
+                    Ok(state) => {
+                        let has_update = state.has_update();
+                        let version = state.available_version.clone();
+                        self.update_state = state;
+                        let state_path = updater::update_state_path(&self.workspace.root);
+                        let _ = self.update_state.save(&state_path);
+
+                        if has_update {
+                            let ver = version.unwrap_or_default();
+                            let _ = self.workspace.append_debug_log(
+                                "updater",
+                                &format!("Update available: v{}", ver),
+                            );
+                            self.update_progress = UpdateProgress::Available(ver);
+                            self.update_banner_dismissed = false;
+                        } else {
+                            let _ = self
+                                .workspace
+                                .append_debug_log("updater", "No update available");
+                            self.update_progress = UpdateProgress::Idle;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = self
+                            .workspace
+                            .append_debug_log("updater", &format!("Update check failed: {}", e));
+                        self.update_progress = UpdateProgress::Error(e);
+                    }
+                }
+            }
+        }
+
+        // Check for update apply results
+        if let Some(rx) = &self.update_apply_rx {
+            if let Ok(result) = rx.try_recv() {
+                self.update_apply_rx = None;
+                match result {
+                    Ok(update_result) => {
+                        let _ = self.workspace.append_debug_log(
+                            "updater",
+                            &format!(
+                                "Update applied: v{} (gui={}, cli={})",
+                                update_result.version,
+                                update_result.gui_updated,
+                                update_result.cli_updated
+                            ),
+                        );
+                        // Clear update state since we've applied it
+                        self.update_state.clear_update();
+                        let state_path = updater::update_state_path(&self.workspace.root);
+                        let _ = self.update_state.save(&state_path);
+
+                        self.update_progress =
+                            UpdateProgress::ReadyToRestart(update_result.version);
+                    }
+                    Err(e) => {
+                        let _ = self.workspace.append_debug_log(
+                            "updater",
+                            &format!("Update apply failed: {}", e),
+                        );
+                        self.update_progress = UpdateProgress::Error(e);
+                    }
+                }
+            }
+        }
+
+        // Periodic auto-check (every 24 hours)
+        if self.config.updates.auto_check
+            && matches!(
+                self.update_progress,
+                UpdateProgress::Idle | UpdateProgress::Error(_)
+            )
+        {
+            let should_check = match self.last_update_check {
+                Some(last) => last.elapsed() >= Duration::from_secs(24 * 3600),
+                None => self.update_state.needs_check(24),
+            };
+            if should_check {
+                self.trigger_update_check();
+            }
+        }
+    }
+
     fn process_tray_events(&mut self, ctx: &egui::Context) {
         while let Some(event) = self.tray.check_event() {
             match event {
@@ -321,6 +497,7 @@ impl eframe::App for TaskPilotApp {
         self.process_events();
         self.process_tray_events(ctx);
         self.process_watcher_events();
+        self.process_update_events();
 
         // Another instance signaled us to come to the foreground
         if self.single_instance_guard.check_activation() {

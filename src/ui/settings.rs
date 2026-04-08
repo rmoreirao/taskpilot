@@ -1,5 +1,5 @@
 use super::{BLUE, GREEN, MUTED, RED, YELLOW};
-use crate::app::TaskPilotApp;
+use crate::app::{TaskPilotApp, UpdateProgress};
 use crate::autostart;
 use crate::workspace::RunStatus;
 use eframe::egui;
@@ -50,6 +50,95 @@ pub fn render_settings(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
             .small()
             .color(MUTED)
     );
+
+    ui.add_space(12.0);
+    ui.separator();
+    ui.add_space(8.0);
+
+    // Updates section
+    ui.label(egui::RichText::new("⬆ Updates").strong());
+    ui.add_space(8.0);
+
+    ui.label(
+        egui::RichText::new(format!("Current version: v{}", env!("CARGO_PKG_VERSION")))
+            .monospace()
+            .small(),
+    );
+    ui.add_space(4.0);
+
+    let mut auto_check = app.config.updates.auto_check;
+    if ui.checkbox(&mut auto_check, "Check for updates automatically").changed() {
+        app.config.updates.auto_check = auto_check;
+        if let Ok(content) = toml::to_string_pretty(&app.config) {
+            let _ = std::fs::write(app.workspace.config_path(), content);
+            app.config_content = app.workspace.config_content();
+        }
+    }
+    ui.label(
+        egui::RichText::new("Checks GitHub for new releases every 24 hours")
+            .small()
+            .color(MUTED),
+    );
+    ui.add_space(8.0);
+
+    match app.update_progress.clone() {
+        UpdateProgress::Idle => {
+            if ui.button("🔍 Check for Updates").clicked() {
+                app.trigger_update_check();
+            }
+        }
+        UpdateProgress::Checking => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Checking for updates...");
+            });
+        }
+        UpdateProgress::Available(ver) => {
+            ui.label(
+                egui::RichText::new(format!("✓ Version v{} is available!", ver))
+                    .color(GREEN),
+            );
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if ui.button("⬇ Download & Apply").clicked() {
+                    app.trigger_update_apply();
+                }
+                if ui.button("🔍 Check Again").clicked() {
+                    app.trigger_update_check();
+                }
+            });
+        }
+        UpdateProgress::Downloading => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Downloading update...");
+            });
+        }
+        UpdateProgress::ReadyToRestart(ver) => {
+            ui.label(
+                egui::RichText::new(format!("✓ v{} installed!", ver))
+                    .color(GREEN)
+                    .strong(),
+            );
+            ui.label("Restart TaskPilot to complete the update.");
+            ui.add_space(4.0);
+            if ui.button("🔄 Restart Now").clicked() {
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe)
+                        .args(std::env::args().skip(1))
+                        .spawn();
+                    std::process::exit(0);
+                }
+            }
+        }
+        UpdateProgress::Error(msg) => {
+            ui.label(egui::RichText::new(format!("⚠ {}", msg)).color(RED));
+            ui.add_space(4.0);
+            if ui.button("🔍 Try Again").clicked() {
+                app.trigger_update_check();
+            }
+        }
+    }
 
     ui.add_space(12.0);
     ui.separator();

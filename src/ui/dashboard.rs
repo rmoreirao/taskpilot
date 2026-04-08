@@ -1,9 +1,14 @@
 use super::{BLUE, GREEN, MUTED, RED, YELLOW};
-use crate::app::{TaskPilotApp, View};
+use crate::app::{TaskPilotApp, UpdateProgress, View};
 use crate::workspace::RunStatus;
 use eframe::egui;
 
 pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
+    // Update banner
+    if !app.update_banner_dismissed {
+        render_update_banner(app, ui);
+    }
+
     ui.heading("Tasks");
     ui.add_space(4.0);
     ui.label(egui::RichText::new("Overview of all scheduled tasks").color(MUTED));
@@ -197,4 +202,103 @@ fn stat_card(ui: &mut egui::Ui, label: &str, value: usize, color: egui::Color32)
                 ui.label(egui::RichText::new(value.to_string()).heading().color(color));
             });
         });
+}
+
+fn render_update_banner(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
+    match app.update_progress.clone() {
+        UpdateProgress::Available(ver) => {
+            egui::Frame::none()
+                .fill(egui::Color32::from_rgb(30, 50, 30))
+                .rounding(6.0)
+                .inner_margin(egui::Margin::same(10.0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("⬆ Update available: v{}", ver))
+                                .color(GREEN)
+                                .strong(),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("✕").clicked() {
+                                app.update_banner_dismissed = true;
+                            }
+                            if ui.button("Update Now").clicked() {
+                                app.trigger_update_apply();
+                            }
+                        });
+                    });
+                });
+            ui.add_space(8.0);
+        }
+        UpdateProgress::Downloading => {
+            egui::Frame::none()
+                .fill(egui::Color32::from_rgb(30, 40, 55))
+                .rounding(6.0)
+                .inner_margin(egui::Margin::same(10.0))
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("⏳ Downloading update...")
+                            .color(BLUE),
+                    );
+                });
+            ui.add_space(8.0);
+        }
+        UpdateProgress::ReadyToRestart(ver) => {
+            egui::Frame::none()
+                .fill(egui::Color32::from_rgb(30, 50, 30))
+                .rounding(6.0)
+                .inner_margin(egui::Margin::same(10.0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "✓ v{} installed — restart to complete the update",
+                                ver
+                            ))
+                            .color(GREEN)
+                            .strong(),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("✕").clicked() {
+                                app.update_banner_dismissed = true;
+                            }
+                            if ui.button("Restart").clicked() {
+                                restart_app();
+                            }
+                        });
+                    });
+                });
+            ui.add_space(8.0);
+        }
+        UpdateProgress::Error(msg) => {
+            egui::Frame::none()
+                .fill(egui::Color32::from_rgb(50, 30, 30))
+                .rounding(6.0)
+                .inner_margin(egui::Margin::same(10.0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("⚠ Update error: {}", msg))
+                                .color(RED),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("✕").clicked() {
+                                app.update_banner_dismissed = true;
+                            }
+                        });
+                    });
+                });
+            ui.add_space(8.0);
+        }
+        _ => {}
+    }
+}
+
+fn restart_app() {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::process::Command::new(exe)
+            .args(std::env::args().skip(1))
+            .spawn();
+        std::process::exit(0);
+    }
 }

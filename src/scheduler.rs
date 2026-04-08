@@ -1,5 +1,6 @@
 use crate::config::AppConfig;
 use crate::executor::execute_task;
+use crate::logging::LogLevel;
 use crate::workspace::{TaskScheduleState, RunStatus, SchedulerState, Workspace};
 use chrono::Utc;
 use cron::Schedule;
@@ -60,11 +61,18 @@ fn scheduler_loop(
     for task in &config.tasks {
         if !state.tasks.contains_key(&task.name) {
             if let Some(schedule) = parse_cron(&task.cron) {
+                let next = schedule.upcoming(Utc).next();
+                workspace.log_task(
+                    LogLevel::Debug,
+                    "scheduler",
+                    &format!("Task '{}': cron '{}' → next run at {}", task.name, task.cron,
+                        next.map_or("none".to_string(), |t| t.to_rfc3339())),
+                );
                 state.tasks.insert(
                     task.name.clone(),
                     TaskScheduleState {
                         last_run: None,
-                        next_run: schedule.upcoming(Utc).next(),
+                        next_run: next,
                         last_status: None,
                     },
                 );
@@ -76,8 +84,16 @@ fn scheduler_loop(
         // Process pending commands
         loop {
             match cmd_rx.try_recv() {
-                Ok(SchedulerCommand::Shutdown) => return,
+                Ok(SchedulerCommand::Shutdown) => {
+                    workspace.log_task(LogLevel::Info, "scheduler", "Scheduler shutting down");
+                    return;
+                }
                 Ok(SchedulerCommand::RunTask(name)) => {
+                    workspace.log_task(
+                        LogLevel::Info,
+                        "scheduler",
+                        &format!("Manual run requested for task '{}'", name),
+                    );
                     spawn_task(
                         &config,
                         &name,
@@ -88,6 +104,11 @@ fn scheduler_loop(
                     );
                 }
                 Ok(SchedulerCommand::UpdateConfig(new_config)) => {
+                    workspace.log_task(
+                        LogLevel::Info,
+                        "scheduler",
+                        &format!("Config updated: rescheduling {} tasks", new_config.tasks.len()),
+                    );
                     config = new_config;
                     for task in &config.tasks {
                         if let Some(schedule) = parse_cron(&task.cron) {
@@ -101,6 +122,12 @@ fn scheduler_loop(
                                         last_status: None,
                                     });
                             entry.next_run = schedule.upcoming(Utc).next();
+                            workspace.log_task(
+                                LogLevel::Debug,
+                                "scheduler",
+                                &format!("Task '{}': cron '{}' → next run at {}", task.name, task.cron,
+                                    entry.next_run.map_or("none".to_string(), |t| t.to_rfc3339())),
+                            );
                         }
                     }
                 }
@@ -128,6 +155,20 @@ fn scheduler_loop(
             .map(|t| t.name.clone())
             .collect();
 
+        for name in &tasks_to_run {
+            workspace.log_task(
+                LogLevel::Info,
+                "scheduler",
+                &format!(
+                    "Task '{}' triggered by cron schedule (next_run was {})",
+                    name,
+                    state.tasks.get(name)
+                        .and_then(|s| s.next_run)
+                        .map_or("none".to_string(), |t| t.to_rfc3339()),
+                ),
+            );
+        }
+
         for name in tasks_to_run {
             spawn_task(&config, &name, &workspace, &evt_tx, &running, &mut state);
         }
@@ -146,12 +187,24 @@ fn spawn_task(
 ) {
     let task = match config.tasks.iter().find(|t| t.name == name) {
         Some(t) => t.clone(),
-        None => return,
+        None => {
+            workspace.log_task(
+                LogLevel::Warn,
+                "scheduler",
+                &format!("Task '{}' not found in config (run request ignored)", name),
+            );
+            return;
+        }
     };
 
     {
         let mut r = running.lock().unwrap();
         if r.contains(name) {
+            workspace.log_task(
+                LogLevel::Debug,
+                "scheduler",
+                &format!("Task '{}' skipped: already running", name),
+            );
             return;
         }
         r.insert(name.to_string());
@@ -162,6 +215,12 @@ fn spawn_task(
         task_state.last_run = Some(Utc::now());
         if let Some(schedule) = parse_cron(&task.cron) {
             task_state.next_run = schedule.upcoming(Utc).next();
+            workspace.log_task(
+                LogLevel::Debug,
+                "scheduler",
+                &format!("Task '{}': next run at {}", name,
+                    task_state.next_run.map_or("none".to_string(), |t| t.to_rfc3339())),
+            );
         }
     }
     let _ = workspace.save_state(state);

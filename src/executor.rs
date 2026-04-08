@@ -1,4 +1,5 @@
 use crate::config::TaskConfig;
+use crate::logging::LogLevel;
 use crate::workspace::{TaskRun, RunStatus, Workspace};
 use chrono::Utc;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -29,17 +30,63 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace) -> TaskRun {
     let timeout = task.timeout.as_ref().and_then(|t| parse_duration(t));
     let retries = task.retries.unwrap_or(0);
 
+    workspace.log_task(
+        LogLevel::Info,
+        "executor",
+        &format!("Starting task '{}': command=\"{}\"", task.name, task.command),
+    );
+    workspace.log_task(
+        LogLevel::Debug,
+        "executor",
+        &format!(
+            "Task '{}' config: cron=\"{}\", timeout={}, working_dir={}, retries={}, notify_on_failure={}",
+            task.name,
+            task.cron,
+            task.timeout.as_deref().unwrap_or("none"),
+            task.working_dir.as_deref().unwrap_or("(default)"),
+            retries,
+            task.notify_on_failure,
+        ),
+    );
+    if let Some(ref dur) = timeout {
+        workspace.log_task(
+            LogLevel::Debug,
+            "executor",
+            &format!("Task '{}': parsed timeout = {:?}", task.name, dur),
+        );
+    }
+
     // Ensure the task runs directory exists for the live log
     let _ = std::fs::create_dir_all(workspace.task_runs_dir(&task.name));
     let live_log_path = workspace.live_log_path(&task.name);
+    workspace.log_task(
+        LogLevel::Debug,
+        "executor",
+        &format!("Task '{}': live log path = \"{}\"", task.name, live_log_path.display()),
+    );
 
     let mut last_run = None;
 
     for attempt in 0..=retries {
+        if attempt > 0 {
+            workspace.log_task(
+                LogLevel::Info,
+                "executor",
+                &format!("Task '{}': retry attempt {}/{}", task.name, attempt, retries),
+            );
+        }
+
         // Clear live log at start of each attempt
         let _ = std::fs::write(&live_log_path, b"");
 
-        let result = run_command(&task.command, task.working_dir.as_deref(), timeout, Some(&live_log_path));
+        let result = run_command(
+            &task.command,
+            task.working_dir.as_deref(),
+            timeout,
+            Some(&live_log_path),
+            workspace,
+            &task.name,
+        );
         let elapsed = start_instant.elapsed();
         let finished_at = Utc::now();
 
@@ -55,6 +102,22 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace) -> TaskRun {
         };
 
         if run.status == RunStatus::Passed || attempt == retries {
+            workspace.log_task(
+                LogLevel::Info,
+                "executor",
+                &format!(
+                    "Task '{}': completed status={} exit_code={} duration={}ms",
+                    task.name,
+                    match run.status {
+                        RunStatus::Passed => "passed",
+                        RunStatus::Failed => "failed",
+                        RunStatus::Timeout => "timeout",
+                        RunStatus::Running => "running",
+                    },
+                    run.exit_code.map_or("none".to_string(), |c| c.to_string()),
+                    elapsed.as_millis(),
+                ),
+            );
             let _ = workspace.save_run(&run);
             workspace.remove_live_log(&task.name);
             last_run = Some(run);
@@ -133,7 +196,20 @@ fn run_command(
     working_dir: Option<&str>,
     timeout: Option<Duration>,
     live_log_path: Option<&Path>,
+    workspace: &Workspace,
+    task_name: &str,
 ) -> CommandResult {
+    let (shell, shell_flag) = if cfg!(target_os = "windows") {
+        ("cmd", "/C")
+    } else {
+        ("sh", "-c")
+    };
+    workspace.log_task(
+        LogLevel::Debug,
+        "executor",
+        &format!("Task '{}': shell command = {} {} \"{}\"", task_name, shell, shell_flag, command),
+    );
+
     let mut cmd = if cfg!(target_os = "windows") {
         let mut c = Command::new("cmd");
         // Use raw_arg to avoid Rust escaping double quotes in the command string.
@@ -155,6 +231,11 @@ fn run_command(
 
     if let Some(dir) = working_dir {
         let expanded = expand_home(dir);
+        workspace.log_task(
+            LogLevel::Debug,
+            "executor",
+            &format!("Task '{}': resolved working_dir = \"{}\"", task_name, expanded),
+        );
         cmd.current_dir(&expanded);
     }
 
@@ -164,6 +245,11 @@ fn run_command(
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
+            workspace.log_task(
+                LogLevel::Error,
+                "executor",
+                &format!("Task '{}': failed to spawn process: {}", task_name, e),
+            );
             return CommandResult {
                 status: RunStatus::Failed,
                 exit_code: None,
@@ -172,6 +258,12 @@ fn run_command(
             };
         }
     };
+
+    workspace.log_task(
+        LogLevel::Debug,
+        "executor",
+        &format!("Task '{}': process spawned (PID {})", task_name, child.id()),
+    );
 
     // Open live log writer (shared between stdout/stderr reader threads)
     let log_writer = live_log_path.and_then(open_live_log);
@@ -221,16 +313,23 @@ fn run_command(
                 stderr: stderr_str,
             }
         }
-        Err(_) => CommandResult {
-            status: RunStatus::Timeout,
-            exit_code: None,
-            stdout: stdout_str,
-            stderr: if stderr_str.is_empty() {
-                format!("Process timed out after {:?}", timeout.unwrap_or_default())
-            } else {
-                format!("{}\nProcess timed out after {:?}", stderr_str, timeout.unwrap_or_default())
-            },
-        },
+        Err(_) => {
+            workspace.log_task(
+                LogLevel::Warn,
+                "executor",
+                &format!("Task '{}': process timed out after {:?}", task_name, timeout.unwrap_or_default()),
+            );
+            CommandResult {
+                status: RunStatus::Timeout,
+                exit_code: None,
+                stdout: stdout_str,
+                stderr: if stderr_str.is_empty() {
+                    format!("Process timed out after {:?}", timeout.unwrap_or_default())
+                } else {
+                    format!("{}\nProcess timed out after {:?}", stderr_str, timeout.unwrap_or_default())
+                },
+            }
+        }
     }
 }
 

@@ -4,7 +4,9 @@
 
 use taskpilot::config::AppConfig;
 use taskpilot::executor;
+use taskpilot::logging::parse_log_level;
 use taskpilot::task_sources;
+use taskpilot::updater;
 use taskpilot::workspace::{RunStatus, Workspace};
 
 use std::sync::Arc;
@@ -13,17 +15,28 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     // Parse --run <task_name>
+    // --version
+    if args.contains(&"--version".to_string()) {
+        println!("taskpilot-cli {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+
     let run_task: Option<String> = args
         .windows(2)
         .find(|pair| pair[0] == "--run")
         .map(|pair| pair[1].clone());
 
     let list_tasks = args.contains(&"--list".to_string());
+    let check_update = args.contains(&"--check-update".to_string());
+    let do_update = args.contains(&"--update".to_string());
 
-    if run_task.is_none() && !list_tasks {
+    if run_task.is_none() && !list_tasks && !check_update && !do_update {
         eprintln!("Usage: taskpilot-cli --list");
         eprintln!("       taskpilot-cli --run <task_name>");
         eprintln!("       taskpilot-cli --task-dir <path> --run <task_name>");
+        eprintln!("       taskpilot-cli --check-update");
+        eprintln!("       taskpilot-cli --update");
+        eprintln!("       taskpilot-cli --version");
         std::process::exit(1);
     }
 
@@ -61,6 +74,8 @@ fn main() {
         AppConfig::default_config()
     };
 
+    workspace.set_log_level(parse_log_level(&config.general.log_level));
+
     // Merge config task_sources with CLI --task-dir arguments
     let mut source_dirs: Vec<std::path::PathBuf> = config
         .general
@@ -76,7 +91,7 @@ fn main() {
 
     // Load and merge tasks from all sources
     let (merged_tasks, source_metadata) =
-        task_sources::load_all(&config.tasks, &config_path, &source_dirs).unwrap_or_else(|e| {
+        task_sources::load_all(&config.tasks, &config_path, &source_dirs, Some(&workspace)).unwrap_or_else(|e| {
             eprintln!("Task source error: {}. Using local tasks only.", e);
             let mut map = std::collections::HashMap::new();
             for task in &config.tasks {
@@ -108,6 +123,74 @@ fn main() {
                 })
                 .unwrap_or_else(|| "unknown".to_string());
             println!("  {} [{}] -- {}", task.name, origin, task.cron);
+        }
+        std::process::exit(0);
+    }
+
+    // ── --check-update ──────────────────────────────────────────────
+    if check_update {
+        println!("Current version: v{}", updater::CURRENT_VERSION);
+        println!("Checking for updates...");
+        match updater::check_for_update() {
+            Ok(state) => {
+                if let Some(ver) = &state.available_version {
+                    println!("Update available: v{}", ver);
+                    if let Some(url) = &state.release_url {
+                        println!("Release page: {}", url);
+                    }
+                    println!("Run `taskpilot-cli --update` to download and apply.");
+                } else {
+                    println!("You are running the latest version.");
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to check for updates: {}", e);
+                std::process::exit(1);
+            }
+        }
+        std::process::exit(0);
+    }
+
+    // ── --update ────────────────────────────────────────────────────
+    if do_update {
+        println!("Current version: v{}", updater::CURRENT_VERSION);
+        println!("Checking for updates...");
+        match updater::check_for_update() {
+            Ok(state) => {
+                if let Some(ver) = &state.available_version {
+                    println!("Update available: v{}", ver);
+                    println!("Downloading...");
+                    match updater::download_and_apply(&state) {
+                        Ok(result) => {
+                            println!("Update applied successfully!");
+                            if result.gui_updated {
+                                println!("  taskpilot.exe updated to v{}", result.version);
+                            }
+                            if result.cli_updated {
+                                println!("  taskpilot-cli.exe updated to v{}", result.version);
+                            }
+                            if result.needs_restart {
+                                println!("Restart TaskPilot to use the new version.");
+                            }
+                            // Save cleared update state
+                            let state_path = updater::update_state_path(&workspace.root);
+                            let mut new_state = state;
+                            new_state.clear_update();
+                            let _ = new_state.save(&state_path);
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to apply update: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    println!("You are running the latest version.");
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to check for updates: {}", e);
+                std::process::exit(1);
+            }
         }
         std::process::exit(0);
     }

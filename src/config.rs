@@ -7,6 +7,8 @@ pub struct AppConfig {
     pub general: GeneralConfig,
     #[serde(default)]
     pub notifications: NotificationConfig,
+    #[serde(default)]
+    pub updates: UpdateConfig,
     #[serde(default, rename = "task")]
     pub tasks: Vec<TaskConfig>,
 }
@@ -69,6 +71,18 @@ impl Default for NotificationConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfig {
+    #[serde(default = "default_true")]
+    pub auto_check: bool,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self { auto_check: true }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskConfig {
     pub name: String,
     pub command: String,
@@ -94,6 +108,7 @@ impl AppConfig {
         Self {
             general: GeneralConfig::default(),
             notifications: NotificationConfig::default(),
+            updates: UpdateConfig::default(),
             tasks: vec![
                 TaskConfig {
                     name: "example-hello".to_string(),

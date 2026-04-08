@@ -2,6 +2,7 @@
 
 use taskpilot::app::TaskPilotApp;
 use taskpilot::config::AppConfig;
+use taskpilot::logging::parse_log_level;
 use taskpilot::single_instance::SingleInstanceGuard;
 use taskpilot::task_sources;
 use taskpilot::tray::TrayManager;
@@ -19,6 +20,12 @@ fn main() -> eframe::Result<()> {
 
     // Parse command line arguments
     let args: Vec<String> = std::env::args().collect();
+
+    if args.contains(&"--version".to_string()) {
+        println!("taskpilot {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+
     let start_minimized = args.contains(&"--minimized".to_string());
 
     // Parse --task-dir arguments (repeatable)
@@ -50,6 +57,8 @@ fn main() -> eframe::Result<()> {
         AppConfig::default_config()
     };
 
+    workspace.set_log_level(parse_log_level(&config.general.log_level));
+
     // Merge config task_sources with CLI --task-dir arguments
     let mut source_dirs: Vec<std::path::PathBuf> = config
         .general
@@ -65,7 +74,7 @@ fn main() -> eframe::Result<()> {
 
     // Load and merge tasks from all sources
     let (merged_tasks, source_metadata) =
-        task_sources::load_all(&config.tasks, &config_path, &source_dirs).unwrap_or_else(|e| {
+        task_sources::load_all(&config.tasks, &config_path, &source_dirs, Some(&workspace)).unwrap_or_else(|e| {
             eprintln!("Task source error: {}. Using local tasks only.", e);
             let mut map = std::collections::HashMap::new();
             for task in &config.tasks {

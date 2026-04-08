@@ -1,5 +1,5 @@
-use super::{GREEN, MUTED};
-use crate::app::{TaskPilotApp, View};
+use super::{GREEN, MUTED, YELLOW};
+use crate::app::{TaskPilotApp, UpdateProgress, View};
 use eframe::egui;
 
 pub fn render(app: &mut TaskPilotApp, ctx: &egui::Context) {
@@ -49,7 +49,26 @@ pub fn render(app: &mut TaskPilotApp, ctx: &egui::Context) {
                         .small()
                         .color(MUTED),
                 );
-                ui.label(egui::RichText::new("v0.1.0").small().color(MUTED));
+
+                // Version with update indicator
+                match &app.update_progress {
+                    UpdateProgress::Available(ver) | UpdateProgress::ReadyToRestart(ver) => {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).small().color(MUTED));
+                            ui.label(egui::RichText::new(format!("⬆ v{}", ver)).small().color(YELLOW));
+                        });
+                    }
+                    UpdateProgress::Checking => {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).small().color(MUTED));
+                            ui.label(egui::RichText::new("⟳").small().color(MUTED));
+                        });
+                    }
+                    _ => {
+                        ui.label(egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).small().color(MUTED));
+                    }
+                }
+
                 ui.separator();
             });
         });
