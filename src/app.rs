@@ -1,5 +1,5 @@
 use crate::config::AppConfig;
-use crate::scheduler::{SchedulerCommand, SchedulerEvent, SchedulerHandle, start_scheduler};
+use crate::scheduler::{self, SchedulerCommand, SchedulerEvent, SchedulerHandle, start_scheduler};
 use crate::single_instance::SingleInstanceGuard;
 use crate::task_sources::{self, TaskSourceInfo};
 use crate::tray::{TrayEvent, TrayManager};
@@ -25,6 +25,7 @@ pub struct TaskStatus {
     pub command: String,
     pub cron: String,
     pub last_run: Option<TaskRun>,
+    pub next_run: Option<chrono::DateTime<chrono::Utc>>,
     pub is_running: bool,
     pub running_since: Option<Instant>,
 }
@@ -208,17 +209,23 @@ impl TaskPilotApp {
     }
 
     pub(crate) fn refresh_task_statuses(&mut self) {
+        let sched_state = self.workspace.load_state();
         self.task_statuses = self
             .config
             .tasks
             .iter()
             .map(|task| {
                 let last_run = self.workspace.get_latest_run(&task.name);
+                let next_run = sched_state
+                    .tasks
+                    .get(&task.name)
+                    .and_then(|s| s.next_run);
                 TaskStatus {
                     name: task.name.clone(),
                     command: task.command.clone(),
                     cron: task.cron.clone(),
                     last_run,
+                    next_run,
                     is_running: self.running_tasks.contains_key(&task.name),
                     running_since: self.running_tasks.get(&task.name).copied(),
                 }
@@ -229,10 +236,10 @@ impl TaskPilotApp {
     fn process_events(&mut self) {
         while let Ok(evt) = self.scheduler.evt_rx.try_recv() {
             match evt {
-                SchedulerEvent::TaskStarted(name) => {
+                SchedulerEvent::TaskStarted(name, _trigger) => {
                     self.running_tasks.insert(name, Instant::now());
                 }
-                SchedulerEvent::TaskFinished(name, status) => {
+                SchedulerEvent::TaskFinished(name, status, trigger) => {
                     self.running_tasks.remove(&name);
                     self.live_logs.remove(&name);
                     let status_text = match &status {
@@ -242,12 +249,39 @@ impl TaskPilotApp {
                         RunStatus::Running => "running",
                         RunStatus::Stopped => "stopped",
                     };
+                    let trigger_prefix = match &trigger {
+                        scheduler::TaskTrigger::CatchUp { scheduled_for } => {
+                            format!("⏰ catch-up (due {}) — ", scheduled_for.format("%H:%M"))
+                        }
+                        _ => String::new(),
+                    };
                     self.notifications.insert(
                         0,
                         NotificationItem {
-                            message: format!("{} {}", name, status_text),
+                            message: format!("{}{} {}", trigger_prefix, name, status_text),
                             task_name: name,
                             status,
+                            time: chrono::Utc::now(),
+                        },
+                    );
+                    self.notifications.truncate(50);
+                }
+                SchedulerEvent::TaskSkipped {
+                    name,
+                    scheduled_for,
+                    reason,
+                } => {
+                    self.notifications.insert(
+                        0,
+                        NotificationItem {
+                            message: format!(
+                                "⏭️ {} skipped (due {}, {})",
+                                name,
+                                scheduled_for.format("%H:%M"),
+                                reason
+                            ),
+                            task_name: name,
+                            status: RunStatus::Stopped,
                             time: chrono::Utc::now(),
                         },
                     );

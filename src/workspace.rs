@@ -37,6 +37,8 @@ pub struct TaskScheduleState {
     pub last_run: Option<DateTime<Utc>>,
     pub next_run: Option<DateTime<Utc>>,
     pub last_status: Option<RunStatus>,
+    #[serde(default)]
+    pub cron_expr: Option<String>,
 }
 
 pub struct Workspace {

@@ -81,6 +81,7 @@ Each task is a repeatable `[[task]]` table. You can define as many as needed.
 | `working_dir` | string | none | Directory to run the command in. Supports `~/` expansion. |
 | `notify_on_failure` | boolean | `true` | Override the global notification setting for this task. |
 | `retries` | integer | `0` | Number of additional attempts if the task fails (exit code ≠ 0). The task is retried immediately. |
+| `run_missed` | boolean | `true` | Execute this task on catch-up if it was missed while TaskPilot was not running or the machine was asleep. When `false`, overdue runs are skipped and `next_run` advances to the next future occurrence. |
 
 ### Example
 
@@ -93,6 +94,7 @@ timeout = "10m"
 working_dir = "C:\\Scripts"
 notify_on_failure = true
 retries = 2
+run_missed = true
 ```
 
 ---

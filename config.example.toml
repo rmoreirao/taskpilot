@@ -32,6 +32,10 @@ cron = "*/5 * * * *"
 timeout = "30s"
 notify_on_failure = true
 
+# Catch-up missed runs: when TaskPilot starts and finds a task overdue,
+# run it immediately. Set to false to skip overdue runs instead.
+# run_missed = true   # (default)
+
 [[task]]
 name = "example-date"
 command = "date /t"

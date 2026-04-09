@@ -33,6 +33,7 @@ TaskPilot is a simple, no-fuss task scheduler for Windows. If you have scripts, 
 - **CLI mode** — Run or test any task from the command line with `taskpilot-cli --run <name>`
 - **Desktop notifications** — Get a Windows notification when a task fails or recovers
 - **Retries & timeouts** — Configure per-task retry counts and maximum run durations
+- **Catch-up missed runs** — When TaskPilot starts or resumes from sleep, overdue tasks run automatically (configurable per-task with `run_missed`)
 - **Run history** — Drill into any task to browse a full log of past executions
 - **Auto-start with Windows** — Optionally register TaskPilot to launch at login
 - **Auto-update** — Checks GitHub for new releases every 24 hours; download and apply with one click from the dashboard or via `taskpilot-cli --update`
@@ -117,6 +118,7 @@ Each task is a `[[task]]` table entry. You can define as many as you like.
 | `working_dir` | — | Directory to run the command in (supports `~/` expansion) |
 | `notify_on_failure` | — | Override the global notification setting for this task (default: `true`) |
 | `retries` | — | Number of additional attempts if the task fails (default: `0`) |
+| `run_missed` | — | Execute this task on catch-up if it was missed (default: `true`). Set to `false` to skip overdue runs. |
 
 #### Cron expression examples
 

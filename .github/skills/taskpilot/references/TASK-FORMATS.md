@@ -30,6 +30,7 @@ command = "python generate_report.py"
 cron = "0 23 * * 1-5"
 timeout = "10m"
 working_dir = "C:\\Scripts"
+run_missed = true
 ```
 
 TaskPilot tries multi-task parsing first. If no `[[task]]` array is found, it falls back to

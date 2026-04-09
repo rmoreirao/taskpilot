@@ -144,7 +144,7 @@ command = "curl http://localhost:8080/health"   # Executed via cmd /C
 cron = "*/5 * * * *"           # Standard 5-field cron expression
 ```
 
-Optional fields: `timeout` (e.g. `"30s"`, `"5m"`, `"1h"`), `working_dir`, `notify_on_failure`, `retries`.
+Optional fields: `timeout` (e.g. `"30s"`, `"5m"`, `"1h"`), `working_dir`, `notify_on_failure`, `retries`, `run_missed` (default: `true` — catch up overdue tasks on startup/resume; set `false` to skip).
 
 ## External Task Sources
 

@@ -9,6 +9,39 @@ use tray_icon::{
     Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
 
+/// Use Win32 API to make the window visible and bring it to the foreground.
+///
+/// This bypasses the eframe viewport command queue, which cannot process
+/// `Visible(true)` when the window is hidden because `WM_PAINT` (and therefore
+/// `RedrawRequested`) is never delivered for hidden windows on Windows.
+#[cfg(windows)]
+fn restore_window_native(log_path: &PathBuf) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, SetForegroundWindow, ShowWindow, SW_SHOW,
+    };
+
+    let title: Vec<u16> = "TaskPilot\0".encode_utf16().collect();
+    let hwnd = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
+    if !hwnd.is_null() {
+        let _ = append_debug_log(log_path, "tray", "Restoring window via Win32 ShowWindow");
+        unsafe {
+            ShowWindow(hwnd, SW_SHOW);
+            SetForegroundWindow(hwnd);
+        }
+    } else {
+        let _ = append_debug_log(
+            log_path,
+            "tray",
+            "Win32 FindWindowW failed to locate TaskPilot window",
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn restore_window_native(_log_path: &PathBuf) {
+    // No-op on non-Windows platforms; viewport commands handle restore.
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayEvent {
     Open,
@@ -107,6 +140,11 @@ impl TrayManager {
                                 "tray",
                                 "Queued open event and restoring viewport",
                             );
+                            // Show the window via Win32 API first — viewport
+                            // commands alone cannot restore a hidden window
+                            // because the eframe event loop does not process
+                            // them while the window is invisible (no WM_PAINT).
+                            restore_window_native(&tray_log_path);
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);

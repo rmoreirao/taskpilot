@@ -6,7 +6,7 @@ use taskpilot::logging::parse_log_level;
 use taskpilot::single_instance::SingleInstanceGuard;
 use taskpilot::task_sources;
 use taskpilot::tray::TrayManager;
-use taskpilot::workspace::Workspace;
+use taskpilot::workspace::{self, Workspace};
 
 use eframe::egui;
 use image::ImageReader;
@@ -58,6 +58,14 @@ fn main() -> eframe::Result<()> {
     };
 
     workspace.set_log_level(parse_log_level(&config.general.log_level));
+
+    // Install a panic hook that writes to the debug log so crashes are visible
+    // even with #![windows_subsystem = "windows"] (no console attached).
+    let panic_log_path = workspace.debug_log_path();
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = format!("{info}");
+        let _ = workspace::append_debug_log(&panic_log_path, "PANIC", &msg);
+    }));
 
     // Merge config task_sources with CLI --task-dir arguments
     let mut source_dirs: Vec<std::path::PathBuf> = config
@@ -124,7 +132,10 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
 
-    eframe::run_native(
+    let debug_log = workspace.debug_log_path();
+    let _ = workspace.append_debug_log("main", "Starting eframe GUI...");
+
+    let result = eframe::run_native(
         "TaskPilot",
         options,
         Box::new(move |cc| {
@@ -142,5 +153,14 @@ fn main() -> eframe::Result<()> {
                 single_instance_guard,
             )))
         }),
-    )
+    );
+
+    if let Err(ref e) = result {
+        let _ = workspace::append_debug_log(
+            &debug_log,
+            "FATAL",
+            &format!("eframe exited with error: {e}"),
+        );
+    }
+    result
 }

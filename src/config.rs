@@ -98,6 +98,8 @@ pub struct TaskConfig {
     pub notify_on_failure: bool,
     #[serde(default)]
     pub retries: Option<u32>,
+    #[serde(default = "default_true")]
+    pub run_missed: bool,
 }
 
 impl AppConfig {
@@ -121,6 +123,7 @@ impl AppConfig {
                     working_dir: None,
                     notify_on_failure: true,
                     retries: None,
+                    run_missed: true,
                 },
                 TaskConfig {
                     name: "example-date".to_string(),
@@ -130,6 +133,7 @@ impl AppConfig {
                     working_dir: None,
                     notify_on_failure: true,
                     retries: None,
+                    run_missed: true,
                 },
             ],
         }

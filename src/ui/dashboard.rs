@@ -80,6 +80,7 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
             ui.strong("Last Run");
             ui.strong("Status");
             ui.strong("Duration");
+            ui.strong("Next Run");
             ui.strong("Actions");
             ui.end_row();
 
@@ -165,6 +166,16 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
                     } else {
                         ui.label(egui::RichText::new("—").color(MUTED));
                     }
+                } else {
+                    ui.label(egui::RichText::new("—").color(MUTED));
+                }
+
+                // Next Run
+                if let Some(next) = task.next_run {
+                    ui.label(
+                        egui::RichText::new(next.format("%Y-%m-%d %H:%M").to_string())
+                            .color(MUTED),
+                    );
                 } else {
                     ui.label(egui::RichText::new("—").color(MUTED));
                 }
