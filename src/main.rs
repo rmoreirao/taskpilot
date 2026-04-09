@@ -124,6 +124,7 @@ fn main() -> eframe::Result<()> {
     };
 
     let options = eframe::NativeOptions {
+        renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1024.0, 680.0])
             .with_title("TaskPilot")
