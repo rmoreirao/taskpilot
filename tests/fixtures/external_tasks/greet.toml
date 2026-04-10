@@ -4,3 +4,4 @@ command = "echo Greetings from external task!"
 cron = "*/10 * * * *"
 timeout = "15s"
 notify_on_failure = false
+shell = "cmd"

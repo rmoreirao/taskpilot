@@ -1,0 +1,25 @@
+# Test config: global default_shell + per-task shell override
+
+[general]
+log_level = "info"
+default_shell = "cmd"
+
+[notifications]
+enabled = false
+
+# Uses global default (cmd)
+[[task]]
+name = "echo-default-shell"
+command = "echo default-shell-works"
+cron = "*/5 * * * *"
+timeout = "10s"
+notify_on_failure = false
+
+# Overrides to powershell
+[[task]]
+name = "echo-powershell"
+command = "Write-Output 'powershell-works'"
+cron = "*/5 * * * *"
+timeout = "10s"
+shell = "powershell"
+notify_on_failure = false

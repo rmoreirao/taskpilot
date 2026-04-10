@@ -25,7 +25,7 @@ pub struct TaskStatus {
     pub command: String,
     pub cron: String,
     pub last_run: Option<TaskRun>,
-    pub next_run: Option<chrono::DateTime<chrono::Utc>>,
+    pub next_run: Option<chrono::DateTime<chrono::Local>>,
     pub is_running: bool,
     pub running_since: Option<Instant>,
 }
@@ -35,7 +35,7 @@ pub struct NotificationItem {
     pub task_name: String,
     pub message: String,
     pub status: RunStatus,
-    pub time: chrono::DateTime<chrono::Utc>,
+    pub time: chrono::DateTime<chrono::Local>,
 }
 
 /// Tracks the state of an in-progress update operation.
@@ -261,7 +261,7 @@ impl TaskPilotApp {
                             message: format!("{}{} {}", trigger_prefix, name, status_text),
                             task_name: name,
                             status,
-                            time: chrono::Utc::now(),
+                            time: chrono::Local::now(),
                         },
                     );
                     self.notifications.truncate(50);
@@ -282,7 +282,7 @@ impl TaskPilotApp {
                             ),
                             task_name: name,
                             status: RunStatus::Stopped,
-                            time: chrono::Utc::now(),
+                            time: chrono::Local::now(),
                         },
                     );
                     self.notifications.truncate(50);

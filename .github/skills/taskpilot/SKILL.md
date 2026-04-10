@@ -8,7 +8,8 @@ description: >
   Trigger keywords include: taskpilot, config.toml, cron task, task scheduler, scheduled command,
   task source, --task-dir, --minimized, --run, --list.
 compatibility: >
-  Windows. TaskPilot is a native Windows application. Commands are executed via cmd /C.
+  Windows. TaskPilot is a native Windows application. Commands are executed via cmd /C by default,
+  with optional PowerShell (powershell/pwsh), sh, or bash shells configurable per-task or globally.
   Requires the taskpilot.exe (GUI) and/or taskpilot-cli.exe (CLI) binaries.
 ---
 
@@ -65,6 +66,7 @@ No restart is needed. External task source directories are watched automatically
 |---|---|
 | `--minimized` | Start without showing the window (useful for auto-start at login) |
 | `--task-dir <path>` | Load additional task definitions from `<path>`. Repeatable. |
+| `--renderer auto\|wgpu\|glow` | Choose rendering backend. `auto` (default) probes for a GPU and falls back to OpenGL. Use `glow` on GPU-less servers. |
 | `--version` | Print the version and exit |
 
 ### CLI binary (`taskpilot-cli.exe`)
@@ -113,7 +115,7 @@ TaskPilot stores all runtime data in `.taskpilot/` next to the executable:
 ```
 .taskpilot/
 ├── config.toml          # Main configuration file
-├── state.json           # Scheduler state (last/next run times)
+├── state.json           # Scheduler state (last/next run times, local time)
 ├── update-state.json    # Auto-update state (last check, available version)
 ├── runs/                # Task run history
 │   └── <task-name>/     # One directory per task
@@ -140,11 +142,28 @@ Each `[[task]]` entry requires three fields:
 ```toml
 [[task]]
 name = "health-check"          # Unique identifier
-command = "curl http://localhost:8080/health"   # Executed via cmd /C
-cron = "*/5 * * * *"           # Standard 5-field cron expression
+command = "curl http://localhost:8080/health"   # Executed via cmd /C (default)
+cron = "*/5 * * * *"           # Standard 5-field cron expression (local time)
 ```
 
-Optional fields: `timeout` (e.g. `"30s"`, `"5m"`, `"1h"`), `working_dir`, `notify_on_failure`, `retries`, `run_missed` (default: `true` — catch up overdue tasks on startup/resume; set `false` to skip).
+Optional fields: `timeout` (e.g. `"30s"`, `"5m"`, `"1h"`), `working_dir`, `notify_on_failure`, `retries`, `run_missed` (default: `true` — catch up overdue tasks on startup/resume; set `false` to skip), `shell` (override: `"cmd"`, `"powershell"`, `"pwsh"`, `"sh"`, `"bash"`).
+
+#### Shell override
+
+```toml
+# Global default (in [general]):
+[general]
+default_shell = "pwsh"
+
+# Per-task override:
+[[task]]
+name = "ps-report"
+command = "Get-Process | Out-File C:\\logs\\procs.txt"
+cron = "0 8 * * *"
+shell = "pwsh"
+```
+
+PowerShell note: non-terminating errors exit 0 by default. Use `$ErrorActionPreference = 'Stop'` or `exit 1` to ensure TaskPilot detects failures.
 
 ## External Task Sources
 
@@ -190,6 +209,11 @@ it is **not** applied automatically on startup or config reload; use the UI to c
   are skipped. Check `debug/app.log` for error messages.
 - **Config changes not taking effect?** Click **Reload Config** in the Settings view. External
   source directories are watched automatically, but `config.toml` itself requires a manual reload.
+- **"OpenGL 2.0+" or "no suitable adapter" errors on Windows Server?** The machine likely has no
+  GPU. Try `--renderer glow` (uses OpenGL) or `--renderer wgpu` (uses DirectX). In `auto` mode
+  (the default), TaskPilot probes for a GPU and falls back automatically. If both renderers fail,
+  install GPU drivers, enable GPU redirection in Remote Desktop, or place a Mesa3D `opengl32.dll`
+  next to `taskpilot.exe` for software OpenGL.
 
 ## Building from Source
 

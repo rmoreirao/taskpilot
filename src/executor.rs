@@ -1,7 +1,7 @@
-use crate::config::TaskConfig;
+use crate::config::{Shell, TaskConfig};
 use crate::logging::LogLevel;
 use crate::workspace::{TaskRun, RunStatus, Workspace};
-use chrono::Utc;
+use chrono::Local;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::Command;
@@ -24,6 +24,54 @@ enum WaitError {
     Other,
 }
 
+/// Resolved shell configuration used to spawn a process.
+struct ShellSpec {
+    program: &'static str,
+    /// Arguments inserted before the user command (e.g. `-NoProfile`, `-NonInteractive`, `-Command`).
+    pre_args: Vec<&'static str>,
+    /// When true, the command string is passed via `raw_arg` (needed for cmd.exe quoting).
+    uses_raw_arg: bool,
+}
+
+impl ShellSpec {
+    fn from_shell(shell: Shell) -> Self {
+        match shell {
+            Shell::Cmd => ShellSpec {
+                program: "cmd",
+                pre_args: vec!["/C"],
+                uses_raw_arg: true,
+            },
+            Shell::PowerShell => ShellSpec {
+                program: "powershell.exe",
+                pre_args: vec!["-NoProfile", "-NonInteractive", "-Command"],
+                uses_raw_arg: false,
+            },
+            Shell::Pwsh => ShellSpec {
+                program: "pwsh.exe",
+                pre_args: vec!["-NoProfile", "-NonInteractive", "-Command"],
+                uses_raw_arg: false,
+            },
+            Shell::Sh => ShellSpec {
+                program: "sh",
+                pre_args: vec!["-c"],
+                uses_raw_arg: false,
+            },
+            Shell::Bash => ShellSpec {
+                program: "bash",
+                pre_args: vec!["-c"],
+                uses_raw_arg: false,
+            },
+        }
+    }
+}
+
+/// Resolve the effective shell: task-level > global default > platform default.
+pub fn resolve_shell(task_shell: Option<Shell>, default_shell: Option<Shell>) -> Shell {
+    task_shell
+        .or(default_shell)
+        .unwrap_or_else(Shell::platform_default)
+}
+
 pub fn parse_duration(s: &str) -> Option<Duration> {
     let s = s.trim();
     if let Some(secs) = s.strip_suffix('s') {
@@ -37,8 +85,8 @@ pub fn parse_duration(s: &str) -> Option<Duration> {
     }
 }
 
-pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelToken) -> TaskRun {
-    let started_at = Utc::now();
+pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelToken, shell: Shell) -> TaskRun {
+    let started_at = Local::now();
     let start_instant = Instant::now();
     let timeout = task.timeout.as_ref().and_then(|t| parse_duration(t));
     let retries = task.retries.unwrap_or(0);
@@ -96,7 +144,7 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
                 stdout: String::new(),
                 stderr: "Task was stopped by user".to_string(),
                 started_at,
-                finished_at: Some(Utc::now()),
+                finished_at: Some(Local::now()),
                 duration_ms: Some(elapsed.as_millis() as u64),
             };
             let _ = workspace.save_run(&run);
@@ -123,9 +171,10 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
             workspace,
             &task.name,
             cancel,
+            shell,
         );
         let elapsed = start_instant.elapsed();
-        let finished_at = Utc::now();
+        let finished_at = Local::now();
 
         let run = TaskRun {
             task_name: task.name.clone(),
@@ -241,36 +290,41 @@ fn run_command(
     workspace: &Workspace,
     task_name: &str,
     cancel: &CancelToken,
+    shell: Shell,
 ) -> CommandResult {
-    let (shell, shell_flag) = if cfg!(target_os = "windows") {
-        ("cmd", "/C")
-    } else {
-        ("sh", "-c")
-    };
+    let spec = ShellSpec::from_shell(shell);
     workspace.log_task(
         LogLevel::Debug,
         "executor",
-        &format!("Task '{}': shell command = {} {} \"{}\"", task_name, shell, shell_flag, command),
+        &format!("Task '{}': shell={} command=\"{}\"", task_name, shell, command),
     );
 
-    let mut cmd = if cfg!(target_os = "windows") {
-        let mut c = Command::new("cmd");
-        // Use raw_arg to avoid Rust escaping double quotes in the command string.
-        // cmd.exe doesn't understand \" — it uses its own quote handling rules.
-        #[cfg(windows)]
-        {
-            c.raw_arg("/C");
-            c.raw_arg(command);
-            c.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let mut cmd = Command::new(spec.program);
+
+    #[cfg(windows)]
+    {
+        if spec.uses_raw_arg {
+            // cmd.exe needs raw_arg to preserve its own quote handling
+            for arg in &spec.pre_args {
+                cmd.raw_arg(arg);
+            }
+            cmd.raw_arg(command);
+        } else {
+            for arg in &spec.pre_args {
+                cmd.arg(arg);
+            }
+            cmd.arg(command);
         }
-        #[cfg(not(windows))]
-        c.args(["/C", command]);
-        c
-    } else {
-        let mut c = Command::new("sh");
-        c.args(["-c", command]);
-        c
-    };
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    #[cfg(not(windows))]
+    {
+        for arg in &spec.pre_args {
+            cmd.arg(arg);
+        }
+        cmd.arg(command);
+    }
 
     if let Some(dir) = working_dir {
         let expanded = expand_home(dir);
@@ -297,7 +351,7 @@ fn run_command(
                 status: RunStatus::Failed,
                 exit_code: None,
                 stdout: String::new(),
-                stderr: format!("Failed to spawn process: {}", e),
+                stderr: format!("Failed to spawn '{}': {}", spec.program, e),
             };
         }
     };

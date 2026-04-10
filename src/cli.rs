@@ -219,7 +219,8 @@ fn main() {
 
         println!("Running task '{}'...", task.name);
         let cancel = executor::new_cancel_token();
-        let run = executor::execute_task(&task, &workspace, &cancel);
+        let shell = executor::resolve_shell(task.shell, effective_config.general.default_shell);
+        let run = executor::execute_task(&task, &workspace, &cancel, shell);
 
         if !run.stdout.is_empty() {
             print!("{}", run.stdout);

@@ -1,8 +1,8 @@
 use crate::config::AppConfig;
-use crate::executor::{execute_task, new_cancel_token, CancelToken};
+use crate::executor::{execute_task, new_cancel_token, resolve_shell, CancelToken};
 use crate::logging::LogLevel;
 use crate::workspace::{TaskScheduleState, RunStatus, SchedulerState, Workspace};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use cron::Schedule;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -18,7 +18,7 @@ pub enum TaskTrigger {
     Scheduled,
     /// Task was overdue — executed as a catch-up run.
     CatchUp {
-        scheduled_for: DateTime<Utc>,
+        scheduled_for: DateTime<Local>,
     },
     /// User clicked "Run" in the UI or used `--run` CLI flag.
     Manual,
@@ -40,7 +40,7 @@ pub enum SchedulerEvent {
     TaskFinished(String, RunStatus, TaskTrigger),
     TaskSkipped {
         name: String,
-        scheduled_for: DateTime<Utc>,
+        scheduled_for: DateTime<Local>,
         reason: String,
     },
 }
@@ -98,12 +98,12 @@ fn scheduler_loop(
                             task.cron
                         ),
                     );
-                    existing.next_run = schedule.upcoming(Utc).next();
+                    existing.next_run = schedule.upcoming(Local).next();
                     existing.cron_expr = Some(task.cron.clone());
                 }
             } else {
                 // New task — initialize state
-                let next = schedule.upcoming(Utc).next();
+                let next = schedule.upcoming(Local).next();
                 workspace.log_task(
                     LogLevel::Debug,
                     "scheduler",
@@ -193,7 +193,7 @@ fn scheduler_loop(
                             // Only reset next_run if cron expression changed
                             let cron_changed = entry.cron_expr.as_deref() != Some(&task.cron);
                             if cron_changed || entry.next_run.is_none() {
-                                entry.next_run = schedule.upcoming(Utc).next();
+                                entry.next_run = schedule.upcoming(Local).next();
                                 entry.cron_expr = Some(task.cron.clone());
                             }
                             workspace.log_task(
@@ -217,11 +217,11 @@ fn scheduler_loop(
         }
 
         // Check cron schedules — classify overdue vs on-time
-        let now = Utc::now();
+        let now = Local::now();
 
         // Collect tasks that are due, along with their trigger classification
         let mut tasks_to_run: Vec<(String, TaskTrigger)> = Vec::new();
-        let mut tasks_to_skip: Vec<(String, DateTime<Utc>)> = Vec::new();
+        let mut tasks_to_skip: Vec<(String, DateTime<Local>)> = Vec::new();
 
         for task in &config.tasks {
             let is_running = running.lock().unwrap().contains_key(&task.name);
@@ -287,7 +287,7 @@ fn scheduler_loop(
             if let Some(task_cfg) = config.tasks.iter().find(|t| t.name == name) {
                 if let Some(schedule) = parse_cron(&task_cfg.cron) {
                     if let Some(task_state) = state.tasks.get_mut(&name) {
-                        task_state.next_run = schedule.upcoming(Utc).next();
+                        task_state.next_run = schedule.upcoming(Local).next();
                         task_state.cron_expr = Some(task_cfg.cron.clone());
                     }
                 }
@@ -347,9 +347,9 @@ fn spawn_task(
 
     // Update state before execution
     if let Some(task_state) = state.tasks.get_mut(name) {
-        task_state.last_run = Some(Utc::now());
+        task_state.last_run = Some(Local::now());
         if let Some(schedule) = parse_cron(&task.cron) {
-            task_state.next_run = schedule.upcoming(Utc).next();
+            task_state.next_run = schedule.upcoming(Local).next();
             task_state.cron_expr = Some(task.cron.clone());
             workspace.log_task(
                 LogLevel::Debug,
@@ -369,9 +369,10 @@ fn spawn_task(
     let task_name = name.to_string();
     let notify_cfg = config.notifications.clone();
     let task_cron = task.cron.clone();
+    let shell = resolve_shell(task.shell, config.general.default_shell);
 
     thread::spawn(move || {
-        let run = execute_task(&task, &ws, &cancel);
+        let run = execute_task(&task, &ws, &cancel, shell);
         let status = run.status.clone();
 
         // Persist last_status and re-advance next_run to first future occurrence
@@ -381,8 +382,8 @@ fn spawn_task(
                 task_state.last_status = Some(status.clone());
                 // Re-advance next_run to ensure it's always in the future
                 if let Some(schedule) = parse_cron(&task_cron) {
-                    let next = schedule.upcoming(Utc).next();
-                    if task_state.next_run.map_or(true, |nr| nr <= Utc::now()) {
+                    let next = schedule.upcoming(Local).next();
+                    if task_state.next_run.map_or(true, |nr| nr <= Local::now()) {
                         task_state.next_run = next;
                     }
                 }

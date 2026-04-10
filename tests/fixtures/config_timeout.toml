@@ -13,3 +13,4 @@ command = "ping -n 10 127.0.0.1"
 cron = "*/5 * * * *"
 timeout = "1s"
 notify_on_failure = false
+shell = "cmd"

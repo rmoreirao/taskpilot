@@ -7,6 +7,7 @@ start_with_windows = true
 # Each directory is scanned for .toml files that define tasks.
 # Files can use the same [[task]] array format as this config,
 # or a flat single-task format (name, command, cron fields at top level).
+# Cron expressions are evaluated in local system time.
 # task_sources = ["C:\\SharedTasks", "D:\\team-tasks"]
 
 # External task configs — individual .toml task definition files.
@@ -27,7 +28,7 @@ auto_check = true
 
 [[task]]
 name = "example-hello"
-command = "echo Hello from TaskPilot!"
+command = "Write-Output 'Hello from TaskPilot!'"
 cron = "*/5 * * * *"
 timeout = "30s"
 notify_on_failure = true
@@ -38,7 +39,7 @@ notify_on_failure = true
 
 [[task]]
 name = "example-date"
-command = "date /t"
+command = "Get-Date -Format 'yyyy-MM-dd'"
 cron = "*/2 * * * *"
 timeout = "10s"
 notify_on_failure = true
@@ -50,3 +51,24 @@ notify_on_failure = true
 # command = 'robocopy C:\Data D:\Backup /MIR'
 # cron = "0 2 * * *"
 # timeout = "10m"
+
+# ── Shell configuration ─────────────────────────────────────────────
+# By default, tasks run via cmd /C on Windows and sh -c elsewhere.
+# Override per-task or globally to use PowerShell or another shell.
+#
+# Supported values: "cmd", "powershell", "pwsh", "sh", "bash"
+#
+# Global default (applies to all tasks without an explicit shell):
+# [general]
+# default_shell = "pwsh"
+#
+# Per-task override:
+# [[task]]
+# name = "ps-task"
+# command = "Get-ChildItem C:\\Data | Measure-Object"
+# shell = "pwsh"
+# cron = "0 8 * * *"
+#
+# PowerShell note: non-terminating errors still exit 0.
+# Use $ErrorActionPreference = 'Stop' or explicit exit 1 / throw
+# when task failure must be detected by TaskPilot.

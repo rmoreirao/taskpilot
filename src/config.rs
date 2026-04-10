@@ -1,6 +1,46 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// Shell used to execute task commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Shell {
+    /// `cmd /C` (Windows default)
+    Cmd,
+    /// `powershell.exe -NoProfile -NonInteractive -Command`
+    #[serde(alias = "powershell")]
+    PowerShell,
+    /// `pwsh.exe -NoProfile -NonInteractive -Command` (PowerShell 6+/Core)
+    Pwsh,
+    /// `sh -c` (Unix default)
+    Sh,
+    /// `bash -c`
+    Bash,
+}
+
+impl Shell {
+    /// Platform default shell.
+    pub fn platform_default() -> Self {
+        if cfg!(target_os = "windows") {
+            Shell::PowerShell
+        } else {
+            Shell::Sh
+        }
+    }
+}
+
+impl std::fmt::Display for Shell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Shell::Cmd => write!(f, "cmd"),
+            Shell::PowerShell => write!(f, "powershell"),
+            Shell::Pwsh => write!(f, "pwsh"),
+            Shell::Sh => write!(f, "sh"),
+            Shell::Bash => write!(f, "bash"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
@@ -25,6 +65,8 @@ pub struct GeneralConfig {
     pub task_sources: Vec<String>,
     #[serde(default)]
     pub task_configs: Vec<String>,
+    #[serde(default)]
+    pub default_shell: Option<Shell>,
 }
 
 fn default_log_level() -> String {
@@ -42,6 +84,7 @@ impl Default for GeneralConfig {
             start_with_windows: false,
             task_sources: Vec::new(),
             task_configs: Vec::new(),
+            default_shell: None,
         }
     }
 }
@@ -100,6 +143,8 @@ pub struct TaskConfig {
     pub retries: Option<u32>,
     #[serde(default = "default_true")]
     pub run_missed: bool,
+    #[serde(default)]
+    pub shell: Option<Shell>,
 }
 
 impl AppConfig {
@@ -117,23 +162,25 @@ impl AppConfig {
             tasks: vec![
                 TaskConfig {
                     name: "example-hello".to_string(),
-                    command: "echo Hello from TaskPilot!".to_string(),
+                    command: "Write-Output 'Hello from TaskPilot!'".to_string(),
                     cron: "*/5 * * * *".to_string(),
                     timeout: Some("30s".to_string()),
                     working_dir: None,
                     notify_on_failure: true,
                     retries: None,
                     run_missed: true,
+                    shell: None,
                 },
                 TaskConfig {
                     name: "example-date".to_string(),
-                    command: "date /t".to_string(),
+                    command: "Get-Date -Format 'yyyy-MM-dd'".to_string(),
                     cron: "*/2 * * * *".to_string(),
                     timeout: Some("10s".to_string()),
                     working_dir: None,
                     notify_on_failure: true,
                     retries: None,
                     run_missed: true,
+                    shell: None,
                 },
             ],
         }

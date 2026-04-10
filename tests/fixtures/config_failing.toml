@@ -12,3 +12,4 @@ command = "cmd /c exit 1"
 cron = "*/5 * * * *"
 timeout = "10s"
 notify_on_failure = false
+shell = "cmd"

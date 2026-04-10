@@ -26,7 +26,7 @@ TaskPilot is a simple, no-fuss task scheduler for Windows. If you have scripts, 
 
 ## Features
 
-- **Cron scheduling** — Use familiar `*/5 * * * *` syntax to define when tasks run
+- **Cron scheduling** — Use familiar `*/5 * * * *` syntax to define when tasks run (evaluated in local system time)
 - **Minimize to tray** — Closing the window hides it to the system tray; click the tray icon to restore
 - **Live dashboard** — See every task's status, last run time, exit code, and stdout/stderr at a glance
 - **Stop running tasks** — Click the **■ Stop** button on the dashboard to cancel a task mid-execution (kills the entire process tree)
@@ -65,7 +65,7 @@ See [Building from Source](#building-from-source) below.
 [[task]]
 name = "my-backup"
 command = 'robocopy C:\Data D:\Backup /MIR'
-cron = "0 2 * * *"        # runs every day at 2:00 AM
+cron = "0 2 * * *"        # runs every day at 2:00 AM (local time)
 timeout = "10m"
 notify_on_failure = true
 ```
@@ -112,13 +112,14 @@ Each task is a `[[task]]` table entry. You can define as many as you like.
 | Field | Required | Description |
 |---|---|---|
 | `name` | ✅ | Unique identifier shown in the dashboard |
-| `command` | ✅ | Command to run (executed via `cmd /C`). Use single-quoted TOML strings for commands with backslashes — see [Quoting & Escaping](#quoting--escaping-in-commands). |
+| `command` | ✅ | Command to run. Use single-quoted TOML strings for commands with backslashes — see [Quoting & Escaping](#quoting--escaping-in-commands). |
 | `cron` | ✅ | 5-field cron expression (`minute hour day month weekday`) |
 | `timeout` | — | Maximum run time before the task is killed (e.g. `30s`, `5m`, `1h`) |
 | `working_dir` | — | Directory to run the command in (supports `~/` expansion) |
 | `notify_on_failure` | — | Override the global notification setting for this task (default: `true`) |
 | `retries` | — | Number of additional attempts if the task fails (default: `0`) |
 | `run_missed` | — | Execute this task on catch-up if it was missed (default: `true`). Set to `false` to skip overdue runs. |
+| `shell` | — | Shell to use: `cmd`, `powershell`, `pwsh`, `sh`, `bash`. Overrides `general.default_shell`. Default: `powershell` (Windows) / `sh` (Unix). |
 
 #### Cron expression examples
 
@@ -218,6 +219,22 @@ taskpilot.exe --task-dir C:\SharedTasks --task-dir D:\team-tasks
 
 Loads additional task definitions from the specified directories. Can be combined with `--minimized`. See [External Task Sources](#external-task-sources) for details.
 
+### Choose a rendering backend
+
+```bat
+taskpilot.exe --renderer auto
+taskpilot.exe --renderer wgpu
+taskpilot.exe --renderer glow
+```
+
+| Value | Behaviour |
+|---|---|
+| `auto` (default) | Probes for a wgpu-compatible GPU; falls back to glow (OpenGL) if none is found |
+| `wgpu` | Force DirectX 12 / Vulkan rendering |
+| `glow` | Force OpenGL rendering |
+
+If the selected renderer fails at startup, TaskPilot automatically retries with the other backend. This is most useful on **Windows Server** or other GPU-less environments where wgpu may not find a hardware adapter.
+
 ### CLI mode — Run or test a task from the terminal
 
 A companion `taskpilot-cli.exe` is provided for command-line use. It shares the same config and workspace as the GUI but runs in the console with full stdout/stderr support.
@@ -265,7 +282,7 @@ TaskPilot stores all runtime data in `.taskpilot/` next to the executable:
 ```
 .taskpilot/
 ├── config.toml                        # Main configuration file
-├── state.json                         # Scheduler state (last/next run times)
+├── state.json                         # Scheduler state (last/next run times, local time)
 ├── update-state.json                  # Auto-update state (last check, available version)
 ├── runs/                              # Task run history
 │   └── <task-name>/                   # One directory per task
@@ -274,7 +291,7 @@ TaskPilot stores all runtime data in `.taskpilot/` next to the executable:
     └── app.log                        # Debug log (append-only)
 ```
 
-Each **run result** is a JSON file containing `task_name`, `status`, `exit_code`, `stdout`, `stderr`, `started_at`, `finished_at`, and `duration_ms`. Tasks execute silently in the background — commands are run via `cmd /C` with stdout/stderr captured in-memory (no terminal window is opened).
+Each **run result** is a JSON file containing `task_name`, `status`, `exit_code`, `stdout`, `stderr`, `started_at`, `finished_at`, and `duration_ms`. All timestamps use the system's local timezone. Tasks execute silently in the background — commands are run via the configured shell (default: `powershell.exe` on Windows) with stdout/stderr captured in-memory (no terminal window is opened).
 
 The **debug log** is an append-only text file with lines in the format `[ISO-8601 timestamp] [component] message`.
 

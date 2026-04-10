@@ -1,5 +1,5 @@
 use crate::logging::{AtomicLogLevel, LogLevel};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -22,8 +22,8 @@ pub struct TaskRun {
     pub exit_code: Option<i32>,
     pub stdout: String,
     pub stderr: String,
-    pub started_at: DateTime<Utc>,
-    pub finished_at: Option<DateTime<Utc>>,
+    pub started_at: DateTime<Local>,
+    pub finished_at: Option<DateTime<Local>>,
     pub duration_ms: Option<u64>,
 }
 
@@ -34,8 +34,8 @@ pub struct SchedulerState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskScheduleState {
-    pub last_run: Option<DateTime<Utc>>,
-    pub next_run: Option<DateTime<Utc>>,
+    pub last_run: Option<DateTime<Local>>,
+    pub next_run: Option<DateTime<Local>>,
     pub last_status: Option<RunStatus>,
     #[serde(default)]
     pub cron_expr: Option<String>,
@@ -204,7 +204,7 @@ pub fn append_debug_log(path: &Path, component: &str, message: &str) -> Result<(
 
     let line = format!(
         "[{}] [{}] {}\n",
-        Utc::now().to_rfc3339(),
+        Local::now().to_rfc3339(),
         component,
         message
     );
@@ -232,7 +232,7 @@ pub fn append_leveled_log(
 
     let line = format!(
         "[{}] [{}] [{}] {}\n",
-        Utc::now().to_rfc3339(),
+        Local::now().to_rfc3339(),
         level.label(),
         component,
         message

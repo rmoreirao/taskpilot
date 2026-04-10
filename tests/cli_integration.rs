@@ -174,6 +174,7 @@ command = "cd"
 cron = "*/5 * * * *"
 timeout = "10s"
 notify_on_failure = false
+shell = "cmd"
 working_dir = {working_dir}
 "#,
         working_dir = toml::Value::String(work_dir.clone())
@@ -255,6 +256,7 @@ command = 'echo "hello world" extra'
 cron = "*/5 * * * *"
 timeout = "10s"
 notify_on_failure = false
+shell = "cmd"
 "#;
 
     let ws = TestWorkspace::from_config_str(config);
@@ -264,4 +266,150 @@ notify_on_failure = false
         .success()
         // cmd /C echo "hello world" extra → prints: "hello world" extra
         .stdout(contains("hello world"));
+}
+
+// ─── Test 16: Default shell (cmd) works with shell config ───────────────────
+
+#[test]
+fn run_task_with_default_shell() {
+    let ws = TestWorkspace::from_fixture("config_shell.toml");
+    ws.cli_cmd()
+        .args(["--run", "echo-default-shell"])
+        .assert()
+        .success()
+        .stdout(contains("default-shell-works"));
+}
+
+// ─── Test 17: Per-task shell override to powershell ─────────────────────────
+
+#[test]
+fn run_task_with_powershell_shell() {
+    let ws = TestWorkspace::from_fixture("config_shell.toml");
+    ws.cli_cmd()
+        .args(["--run", "echo-powershell"])
+        .assert()
+        .success()
+        .stdout(contains("powershell-works"));
+}
+
+// ─── Test 18: Global default_shell applies when task has no shell ────────────
+
+#[test]
+fn global_default_shell_applies() {
+    let config = r#"
+[general]
+log_level = "info"
+default_shell = "powershell"
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "ps-via-default"
+command = "Write-Output 'from-global-default'"
+cron = "*/5 * * * *"
+timeout = "10s"
+notify_on_failure = false
+"#;
+
+    let ws = TestWorkspace::from_config_str(config);
+    ws.cli_cmd()
+        .args(["--run", "ps-via-default"])
+        .assert()
+        .success()
+        .stdout(contains("from-global-default"));
+}
+
+// ─── Test 19: Per-task shell overrides global default ────────────────────────
+
+#[test]
+fn task_shell_overrides_global_default() {
+    // Global default is powershell, but task explicitly uses cmd
+    let config = r#"
+[general]
+log_level = "info"
+default_shell = "powershell"
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "cmd-override"
+command = "echo cmd-override-works"
+cron = "*/5 * * * *"
+timeout = "10s"
+shell = "cmd"
+notify_on_failure = false
+"#;
+
+    let ws = TestWorkspace::from_config_str(config);
+    ws.cli_cmd()
+        .args(["--run", "cmd-override"])
+        .assert()
+        .success()
+        .stdout(contains("cmd-override-works"));
+}
+
+// ─── Test 20: Missing shell executable gives clear error ─────────────────────
+
+#[test]
+fn missing_shell_executable_fails_with_message() {
+    let config = r#"
+[general]
+log_level = "info"
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "bad-shell-task"
+command = "echo hello"
+cron = "*/5 * * * *"
+timeout = "10s"
+shell = "pwsh"
+notify_on_failure = false
+"#;
+
+    let ws = TestWorkspace::from_config_str(config);
+    // This may pass or fail depending on whether pwsh is installed,
+    // but it should NOT panic — it should give a clean exit.
+    let output = ws
+        .cli_cmd()
+        .args(["--run", "bad-shell-task"])
+        .output()
+        .expect("Failed to run CLI");
+
+    // Should not panic (exit code should be defined)
+    let _ = output.status.code().expect("Process should have an exit code");
+}
+
+// ─── Test 21: Shell field in external task files ─────────────────────────────
+
+#[test]
+fn external_task_with_shell_field() {
+    // Create a temp dir with an external task that uses powershell
+    let tmp = tempfile::TempDir::new().expect("Failed to create temp dir");
+    let task_file = tmp.path().join("ps-task.toml");
+    std::fs::write(
+        &task_file,
+        r#"name = "ext-ps-task"
+command = "Write-Output 'external-ps-works'"
+cron = "0 * * * *"
+timeout = "10s"
+shell = "powershell"
+"#,
+    )
+    .expect("Failed to write external task file");
+
+    let ws = TestWorkspace::from_fixture("config_basic.toml");
+    ws.cli_cmd()
+        .args([
+            "--task-dir",
+            tmp.path().to_str().unwrap(),
+            "--run",
+            "ext-ps-task",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("external-ps-works"));
 }

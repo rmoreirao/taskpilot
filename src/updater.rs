@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -10,7 +10,7 @@ pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Persisted update state stored in the workspace.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateState {
-    pub last_check: Option<DateTime<Utc>>,
+    pub last_check: Option<DateTime<Local>>,
     pub available_version: Option<String>,
     pub release_url: Option<String>,
     pub download_url_gui: Option<String>,
@@ -43,7 +43,7 @@ impl UpdateState {
     pub fn needs_check(&self, interval_hours: u64) -> bool {
         match self.last_check {
             Some(last) => {
-                let elapsed = Utc::now().signed_duration_since(last);
+                let elapsed = Local::now().signed_duration_since(last);
                 elapsed.num_hours() >= interval_hours as i64
             }
             None => true,
@@ -154,7 +154,7 @@ pub fn is_newer_version(local: &str, remote: &str) -> bool {
 /// Check for updates and return the new state.
 pub fn check_for_update() -> Result<UpdateState, String> {
     let mut state = UpdateState {
-        last_check: Some(Utc::now()),
+        last_check: Some(Local::now()),
         ..Default::default()
     };
 

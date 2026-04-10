@@ -14,3 +14,4 @@ cron = "*/5 * * * *"
 timeout = "10s"
 notify_on_failure = false
 retries = 2
+shell = "cmd"

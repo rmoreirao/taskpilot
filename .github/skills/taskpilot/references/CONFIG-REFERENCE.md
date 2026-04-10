@@ -11,6 +11,7 @@ Full field-by-field reference for `.taskpilot/config.toml`.
 | `start_with_windows` | boolean | `false` | Persisted state of the auto-start toggle. Changed via the **Settings** UI checkbox, which registers/unregisters the Windows Run registry key. This field is **not** applied automatically on startup or config reload. |
 | `task_sources` | array of strings | `[]` | List of external directories containing `.toml` task definitions. Paths support `~/` expansion. Merged with CLI `--task-dir` arguments. |
 | `task_configs` | array of strings | `[]` | List of individual `.toml` task definition files. Paths support `~/` expansion. Same format as files in `task_sources` directories. |
+| `default_shell` | string | *(platform)* | Default shell for all tasks. One of: `"cmd"` (Windows default), `"powershell"`, `"pwsh"`, `"sh"` (Unix default), `"bash"`. Per-task `shell` overrides this. Only valid in the main config; ignored in external task files. |
 
 ### Example
 
@@ -21,6 +22,7 @@ max_log_retention_days = 30
 start_with_windows = true
 task_sources = ["C:\\SharedTasks", "~/team-tasks"]
 task_configs = ["C:\\SharedTasks\\special-task.toml", "~/my-task.toml"]
+default_shell = "pwsh"     # all tasks use PowerShell Core unless overridden
 ```
 
 ---
@@ -70,8 +72,8 @@ Each task is a repeatable `[[task]]` table. You can define as many as needed.
 | Field | Type | Description |
 |---|---|---|
 | `name` | string | Unique identifier shown in the dashboard. Must be unique across all sources (local + external). |
-| `command` | string | Command to run. Executed via `cmd /C` on Windows, `sh -c` elsewhere. |
-| `cron` | string | Standard 5-field cron expression: `minute hour day month weekday`. |
+| `command` | string | Command to run. Executed via the resolved shell (see `shell` field and `general.default_shell`). Defaults to `cmd /C` on Windows, `sh -c` elsewhere. |
+| `cron` | string | Standard 5-field cron expression: `minute hour day month weekday`. Evaluated in local system time. |
 
 ### Optional Fields
 
@@ -82,6 +84,7 @@ Each task is a repeatable `[[task]]` table. You can define as many as needed.
 | `notify_on_failure` | boolean | `true` | Override the global notification setting for this task. |
 | `retries` | integer | `0` | Number of additional attempts if the task fails (exit code ≠ 0). The task is retried immediately. |
 | `run_missed` | boolean | `true` | Execute this task on catch-up if it was missed while TaskPilot was not running or the machine was asleep. When `false`, overdue runs are skipped and `next_run` advances to the next future occurrence. |
+| `shell` | string | *(inherited)* | Shell to execute this task's command. One of: `"cmd"`, `"powershell"`, `"pwsh"`, `"sh"`, `"bash"`. Overrides `general.default_shell`. If neither is set, uses `powershell` on Windows or `sh` on Unix. PowerShell variants run with `-NoProfile -NonInteractive -Command`. |
 
 ### Example
 
@@ -95,6 +98,13 @@ working_dir = "C:\\Scripts"
 notify_on_failure = true
 retries = 2
 run_missed = true
+
+[[task]]
+name = "ps-health-check"
+command = "Get-Service | Where-Object { $_.Status -ne 'Running' } | ForEach-Object { Write-Warning $_.Name }; exit 0"
+cron = "*/30 * * * *"
+shell = "pwsh"
+timeout = "1m"
 ```
 
 ---
@@ -161,4 +171,43 @@ name = "run-copilot-prompt"
 command = 'copilot -p "execute @ .github\prompts\echo-test.prompt.md" --allow-all --autopilot --model claude-sonnet-4.6'
 cron = "0 7 * * *"
 timeout = "1h"
+```
+
+---
+
+## Shell Configuration
+
+By default, commands run via `cmd /C` on Windows and `sh -c` on Unix. You can override this globally or per-task.
+
+### Supported shells
+
+| Value | Program | Flags |
+|---|---|---|
+| `cmd` | `cmd.exe` | `/C` |
+| `powershell` | `powershell.exe` | `-NoProfile -NonInteractive -Command` |
+| `pwsh` | `pwsh.exe` | `-NoProfile -NonInteractive -Command` |
+| `sh` | `sh` | `-c` |
+| `bash` | `bash` | `-c` |
+
+### Resolution order
+
+1. Per-task `shell` field (if set)
+2. `general.default_shell` (if set)
+3. Platform default (`cmd` on Windows, `sh` on Unix)
+
+### PowerShell exit-code note
+
+PowerShell non-terminating errors (e.g., a failed `Get-Item` call) do **not** set a non-zero exit code by default. TaskPilot only sees the process exit code, so such errors will appear as "passed".
+
+To ensure TaskPilot detects failures, use one of:
+
+```powershell
+# Option 1: Set error preference at the start of the command
+$ErrorActionPreference = 'Stop'; Get-Item C:\Missing
+
+# Option 2: Explicit exit code
+if (-not (Test-Path C:\Data)) { exit 1 }
+
+# Option 3: throw on error
+throw "Something went wrong"
 ```

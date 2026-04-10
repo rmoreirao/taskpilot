@@ -6,6 +6,7 @@ command = "echo Batch task one"
 cron = "*/15 * * * *"
 timeout = "10s"
 notify_on_failure = false
+shell = "cmd"
 
 [[task]]
 name = "batch-two"
@@ -13,3 +14,4 @@ command = "echo Batch task two"
 cron = "*/15 * * * *"
 timeout = "10s"
 notify_on_failure = false
+shell = "cmd"

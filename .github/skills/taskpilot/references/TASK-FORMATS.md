@@ -33,6 +33,16 @@ working_dir = "C:\\Scripts"
 run_missed = true
 ```
 
+### Single-task with custom shell
+
+```toml
+name = "ps-cleanup"
+command = "Remove-Item $env:TEMP\\*.tmp -Force -ErrorAction SilentlyContinue"
+cron = "0 4 * * *"
+shell = "pwsh"
+timeout = "5m"
+```
+
 TaskPilot tries multi-task parsing first. If no `[[task]]` array is found, it falls back to
 single-task parsing.
 
@@ -100,7 +110,7 @@ local tasks only** — external sources are skipped. The app still starts.
 
 ## Cron Expression Reference
 
-TaskPilot uses standard 5-field cron expressions:
+TaskPilot uses standard 5-field cron expressions, evaluated in **local system time**:
 
 ```
 ┌───────────── minute (0–59)

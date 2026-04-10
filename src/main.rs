@@ -3,6 +3,7 @@
 use taskpilot::app::TaskPilotApp;
 use taskpilot::config::AppConfig;
 use taskpilot::logging::parse_log_level;
+use taskpilot::renderer;
 use taskpilot::single_instance::SingleInstanceGuard;
 use taskpilot::task_sources;
 use taskpilot::tray::TrayManager;
@@ -117,51 +118,141 @@ fn main() -> eframe::Result<()> {
         .expect("Failed to decode icon")
         .into_rgba8();
     let (w, h) = icon_img.dimensions();
-    let window_icon = egui::IconData {
+    let window_icon = Arc::new(egui::IconData {
         rgba: icon_img.into_raw(),
         width: w,
         height: h,
-    };
+    });
 
-    let options = eframe::NativeOptions {
-        renderer: eframe::Renderer::Wgpu,
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1024.0, 680.0])
-            .with_title("TaskPilot")
-            .with_icon(std::sync::Arc::new(window_icon))
-            .with_visible(!start_minimized),
-        ..Default::default()
-    };
+    // --- Renderer selection ---------------------------------------------------
+    let pref = renderer::parse_renderer_arg(&args);
+    let primary = renderer::select_renderer(pref);
+    let _ = workspace.append_debug_log(
+        "renderer",
+        &format!(
+            "preference={pref:?}, selected={}",
+            renderer::renderer_name(primary)
+        ),
+    );
 
     let debug_log = workspace.debug_log_path();
     let _ = workspace.append_debug_log("main", "Starting eframe GUI...");
 
-    let result = eframe::run_native(
+    // Wrap the single-instance guard so it can survive a renderer retry.  The
+    // first app-creator closure that actually executes `.take()`s it; if the
+    // primary renderer fails *before* the closure runs (adapter / OpenGL errors)
+    // the guard stays available for the fallback attempt.
+    let guard_slot: Arc<std::sync::Mutex<Option<SingleInstanceGuard>>> =
+        Arc::new(std::sync::Mutex::new(Some(single_instance_guard)));
+
+    // --- Primary attempt ------------------------------------------------------
+    let result = {
+        let options = eframe::NativeOptions {
+            renderer: primary,
+            viewport: egui::ViewportBuilder::default()
+                .with_inner_size([1024.0, 680.0])
+                .with_title("TaskPilot")
+                .with_icon(window_icon.clone())
+                .with_visible(!start_minimized),
+            ..Default::default()
+        };
+
+        let ws = workspace.clone();
+        let cfg = effective_config.clone();
+        let meta = source_metadata.clone();
+        let dirs = source_dirs.clone();
+        let files = source_files.clone();
+        let cli = cli_task_dirs.clone();
+        let guard = guard_slot.clone();
+
+        eframe::run_native(
+            "TaskPilot",
+            options,
+            Box::new(move |cc| {
+                cc.egui_ctx.set_visuals(egui::Visuals::dark());
+                let tray = TrayManager::new(cc.egui_ctx.clone(), ws.debug_log_path())
+                    .expect("Failed to create system tray");
+                let sig = guard
+                    .lock()
+                    .expect("guard lock poisoned")
+                    .take()
+                    .expect("single-instance guard already consumed");
+                Ok(Box::new(TaskPilotApp::new(
+                    ws, cfg, tray, meta, dirs, files, cli, sig,
+                )))
+            }),
+        )
+    };
+
+    if result.is_ok() {
+        return result;
+    }
+
+    // --- Fallback attempt -----------------------------------------------------
+    let primary_err = result.unwrap_err();
+    let fallback = renderer::alternate_renderer(primary);
+    let _ = workspace::append_debug_log(
+        &debug_log,
+        "renderer",
+        &format!(
+            "{} failed ({}), retrying with {}",
+            renderer::renderer_name(primary),
+            primary_err,
+            renderer::renderer_name(fallback),
+        ),
+    );
+
+    let fallback_options = eframe::NativeOptions {
+        renderer: fallback,
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1024.0, 680.0])
+            .with_title("TaskPilot")
+            .with_icon(window_icon)
+            .with_visible(!start_minimized),
+        ..Default::default()
+    };
+
+    let ws = workspace.clone();
+    let guard = guard_slot.clone();
+
+    let fallback_result = eframe::run_native(
         "TaskPilot",
-        options,
+        fallback_options,
         Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
-            let tray = TrayManager::new(cc.egui_ctx.clone(), workspace.debug_log_path())
+            let tray = TrayManager::new(cc.egui_ctx.clone(), ws.debug_log_path())
                 .expect("Failed to create system tray");
+            let sig = guard
+                .lock()
+                .expect("guard lock poisoned")
+                .take()
+                .expect("single-instance guard already consumed");
             Ok(Box::new(TaskPilotApp::new(
-                workspace,
+                ws,
                 effective_config,
                 tray,
                 source_metadata,
                 source_dirs,
                 source_files,
                 cli_task_dirs,
-                single_instance_guard,
+                sig,
             )))
         }),
     );
 
-    if let Err(ref e) = result {
-        let _ = workspace::append_debug_log(
-            &debug_log,
-            "FATAL",
-            &format!("eframe exited with error: {e}"),
+    if let Err(ref e) = fallback_result {
+        let msg = format!(
+            "Both renderers failed.\n  {}: {}\n  {}: {}\n\
+             Suggestions:\n  \
+             - Install GPU drivers for your display adapter\n  \
+             - Use Remote Desktop with GPU redirection enabled\n  \
+             - Place a Mesa3D opengl32.dll next to taskpilot.exe for software OpenGL",
+            renderer::renderer_name(primary),
+            primary_err,
+            renderer::renderer_name(fallback),
+            e,
         );
+        let _ = workspace::append_debug_log(&debug_log, "FATAL", &msg);
     }
-    result
+    fallback_result
 }
