@@ -11,9 +11,10 @@ You are automating a release for the TaskPilot project. Follow these steps exact
 
 Read the `version` field from `Cargo.toml` in the repo root. Parse it as `MAJOR.MINOR.PATCH` (semver).
 
-## Step 2 — Ask for Bump Type
+## Step 2 — Bump Type
 
-Ask the user which version bump to apply:
+Default to a **patch** bump, which increments the PATCH version. If user specifies a bump type, it can be one of the following:
+
 - **patch** (default) — e.g. `0.1.0` → `0.1.1`
 - **minor** — e.g. `0.1.0` → `0.2.0`
 - **major** — e.g. `0.1.0` → `1.0.0`
