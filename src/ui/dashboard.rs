@@ -111,7 +111,7 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
                 // Last run time
                 if let Some(run) = &task.last_run {
                     ui.label(
-                        egui::RichText::new(run.started_at.format("%H:%M:%S").to_string())
+                        egui::RichText::new(run.started_at.format("%Y-%m-%d %H:%M").to_string())
                             .color(MUTED),
                     );
                 } else {
