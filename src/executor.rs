@@ -1,6 +1,6 @@
 use crate::config::{Shell, TaskConfig};
 use crate::logging::LogLevel;
-use crate::workspace::{TaskRun, RunStatus, Workspace};
+use crate::workspace::{TaskRun, TaskRunConfig, RunStatus, Workspace};
 use chrono::Local;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
@@ -91,6 +91,17 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
     let timeout = task.timeout.as_ref().and_then(|t| parse_duration(t));
     let retries = task.retries.unwrap_or(0);
 
+    let run_config = TaskRunConfig {
+        command: task.command.clone(),
+        cron: task.cron.clone(),
+        timeout: task.timeout.clone(),
+        working_dir: task.working_dir.clone(),
+        notify_on_failure: task.notify_on_failure,
+        retries,
+        run_missed: task.run_missed,
+        shell: format!("{}", shell),
+    };
+
     workspace.log_task(
         LogLevel::Info,
         "executor",
@@ -100,13 +111,14 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
         LogLevel::Debug,
         "executor",
         &format!(
-            "Task '{}' config: cron=\"{}\", timeout={}, working_dir={}, retries={}, notify_on_failure={}",
+            "Task '{}' config: cron=\"{}\", timeout={}, working_dir={}, retries={}, notify_on_failure={}, shell={}",
             task.name,
             task.cron,
             task.timeout.as_deref().unwrap_or("none"),
             task.working_dir.as_deref().unwrap_or("(default)"),
             retries,
             task.notify_on_failure,
+            shell,
         ),
     );
     if let Some(ref dur) = timeout {
@@ -127,6 +139,7 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
     );
 
     let mut last_run = None;
+    let total_attempts = retries + 1;
 
     for attempt in 0..=retries {
         // Check cancellation before each attempt
@@ -134,7 +147,7 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
             workspace.log_task(
                 LogLevel::Info,
                 "executor",
-                &format!("Task '{}': cancelled before attempt {}", task.name, attempt),
+                &format!("Task '{}': cancelled before attempt {}/{}", task.name, attempt + 1, total_attempts),
             );
             let elapsed = start_instant.elapsed();
             let run = TaskRun {
@@ -146,6 +159,9 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
                 started_at,
                 finished_at: Some(Local::now()),
                 duration_ms: Some(elapsed.as_millis() as u64),
+                attempt: Some(attempt),
+                total_attempts: Some(total_attempts),
+                config: Some(run_config),
             };
             let _ = workspace.save_run(&run);
             workspace.remove_live_log(&task.name);
@@ -156,7 +172,7 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
             workspace.log_task(
                 LogLevel::Info,
                 "executor",
-                &format!("Task '{}': retry attempt {}/{}", task.name, attempt, retries),
+                &format!("Task '{}': retry attempt {}/{} (attempt {}/{})", task.name, attempt, retries, attempt + 1, total_attempts),
             );
         }
 
@@ -185,6 +201,9 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
             started_at,
             finished_at: Some(finished_at),
             duration_ms: Some(elapsed.as_millis() as u64),
+            attempt: Some(attempt),
+            total_attempts: Some(total_attempts),
+            config: Some(run_config.clone()),
         };
 
         // Stop retrying on success, cancellation, or final attempt
@@ -192,12 +211,31 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
             || run.status == RunStatus::Stopped
             || attempt == retries
         {
+            if attempt > 0 && run.status != RunStatus::Passed {
+                workspace.log_task(
+                    LogLevel::Warn,
+                    "executor",
+                    &format!(
+                        "Task '{}': all {} retries exhausted, final status={}",
+                        task.name,
+                        retries,
+                        match run.status {
+                            RunStatus::Failed => "failed",
+                            RunStatus::Timeout => "timeout",
+                            RunStatus::Stopped => "stopped",
+                            _ => "unknown",
+                        },
+                    ),
+                );
+            }
             workspace.log_task(
                 LogLevel::Info,
                 "executor",
                 &format!(
-                    "Task '{}': completed status={} exit_code={} duration={}ms",
+                    "Task '{}': completed attempt={}/{} status={} exit_code={} duration={}ms",
                     task.name,
+                    attempt + 1,
+                    total_attempts,
                     match run.status {
                         RunStatus::Passed => "passed",
                         RunStatus::Failed => "failed",
@@ -214,6 +252,24 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
             last_run = Some(run);
             break;
         }
+
+        // Log the failed attempt before retrying
+        workspace.log_task(
+            LogLevel::Warn,
+            "executor",
+            &format!(
+                "Task '{}': attempt {}/{} failed (status={}, exit_code={}), will retry",
+                task.name,
+                attempt + 1,
+                total_attempts,
+                match run.status {
+                    RunStatus::Failed => "failed",
+                    RunStatus::Timeout => "timeout",
+                    _ => "unknown",
+                },
+                run.exit_code.map_or("none".to_string(), |c| c.to_string()),
+            ),
+        );
 
         last_run = Some(run);
     }

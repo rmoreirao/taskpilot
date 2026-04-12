@@ -207,6 +207,16 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(icon).color(color).strong());
                     ui.label(egui::RichText::new(format!("{:?}", run.status)).color(color));
+                    // Show attempt info if retries were configured
+                    if let (Some(attempt), Some(total)) = (run.attempt, run.total_attempts) {
+                        if total > 1 {
+                            ui.label(
+                                egui::RichText::new(format!("(attempt {}/{})", attempt + 1, total))
+                                    .small()
+                                    .color(MUTED),
+                            );
+                        }
+                    }
                     ui.label(
                         egui::RichText::new(
                             run.started_at.format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -231,6 +241,35 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
                         }
                     });
                 });
+
+                // Show task config snapshot if available
+                if let Some(ref cfg) = run.config {
+                    ui.add_space(4.0);
+                    egui::CollapsingHeader::new(
+                        egui::RichText::new("📋 Task Config").small().color(MUTED),
+                    )
+                    .id_source(format!("config-{}", run.started_at.timestamp_millis()))
+                    .show(ui, |ui| {
+                        egui::Grid::new(format!("config-grid-{}", run.started_at.timestamp_millis()))
+                            .num_columns(2)
+                            .spacing([12.0, 4.0])
+                            .show(ui, |ui| {
+                                let field = |ui: &mut egui::Ui, label: &str, value: &str| {
+                                    ui.label(egui::RichText::new(label).small().color(MUTED));
+                                    ui.label(egui::RichText::new(value).small().monospace());
+                                    ui.end_row();
+                                };
+                                field(ui, "Command:", &cfg.command);
+                                field(ui, "Cron:", &cfg.cron);
+                                field(ui, "Shell:", &cfg.shell);
+                                field(ui, "Timeout:", cfg.timeout.as_deref().unwrap_or("none"));
+                                field(ui, "Working Dir:", cfg.working_dir.as_deref().unwrap_or("(default)"));
+                                field(ui, "Retries:", &cfg.retries.to_string());
+                                field(ui, "Notify on Failure:", if cfg.notify_on_failure { "yes" } else { "no" });
+                                field(ui, "Run Missed:", if cfg.run_missed { "yes" } else { "no" });
+                            });
+                    });
+                }
 
                 // Show output
                 if !run.stderr.is_empty() {

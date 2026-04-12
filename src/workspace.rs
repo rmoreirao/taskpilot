@@ -15,6 +15,25 @@ pub enum RunStatus {
     Stopped,
 }
 
+/// Snapshot of the task configuration at execution time, stored alongside each run
+/// for post-mortem debugging.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskRunConfig {
+    pub command: String,
+    pub cron: String,
+    #[serde(default)]
+    pub timeout: Option<String>,
+    #[serde(default)]
+    pub working_dir: Option<String>,
+    #[serde(default)]
+    pub notify_on_failure: bool,
+    #[serde(default)]
+    pub retries: u32,
+    #[serde(default)]
+    pub run_missed: bool,
+    pub shell: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskRun {
     pub task_name: String,
@@ -25,6 +44,14 @@ pub struct TaskRun {
     pub started_at: DateTime<Local>,
     pub finished_at: Option<DateTime<Local>>,
     pub duration_ms: Option<u64>,
+    /// Which attempt this run represents (0-based) and total attempts made.
+    #[serde(default)]
+    pub attempt: Option<u32>,
+    #[serde(default)]
+    pub total_attempts: Option<u32>,
+    /// Task configuration snapshot captured at execution time.
+    #[serde(default)]
+    pub config: Option<TaskRunConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
