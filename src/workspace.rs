@@ -146,10 +146,11 @@ impl Workspace {
         self.run_dir(task_name, started_at).join("output.log")
     }
 
-    /// Read the output log for a running task (for live display).
+    /// Read the tail of the output log for a running task (for live display).
+    /// Capped to avoid OOM on large logs — the UI further truncates for display.
     pub fn read_output_log(&self, task_name: &str, started_at: &DateTime<Local>) -> String {
         let path = self.output_log_path(task_name, started_at);
-        std::fs::read_to_string(&path).unwrap_or_default()
+        read_file_tail(&path, 128 * 1024)
     }
 
     /// Read the tail of the output log (last `max_bytes` bytes), useful for notifications.
@@ -158,9 +159,10 @@ impl Workspace {
         read_file_tail(&path, max_bytes)
     }
 
-    /// Read the output log for a run using its stored path (for history display).
+    /// Read the tail of the output log for a run using its stored path (for history display).
+    /// Capped to avoid OOM on large logs.
     pub fn read_output_log_from_path(path: &Path) -> String {
-        std::fs::read_to_string(path).unwrap_or_default()
+        read_file_tail(path, 128 * 1024)
     }
 
     pub fn save_run(&self, run: &TaskRun) -> Result<PathBuf, String> {
@@ -227,9 +229,10 @@ impl Workspace {
             .collect()
     }
 
-    /// Load all run metadata (without stdout/stderr content) for a task, newest first.
+    /// Load run metadata (without stdout/stderr content) for a task, newest first.
     /// Output log paths are still set so content can be loaded on demand.
-    pub fn load_runs_metadata(&self, task_name: &str) -> Vec<TaskRun> {
+    /// Limited to `limit` most recent runs to avoid OOM on tasks with long history.
+    pub fn load_runs_metadata(&self, task_name: &str, limit: usize) -> Vec<TaskRun> {
         let dir = self.task_runs_dir(task_name);
         if !dir.exists() {
             return Vec::new();
@@ -263,6 +266,7 @@ impl Workspace {
         }
 
         run_entries.sort_by(|a, b| b.0.cmp(&a.0)); // newest first
+        run_entries.truncate(limit);
 
         run_entries
             .into_iter()

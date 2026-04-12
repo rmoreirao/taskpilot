@@ -236,7 +236,7 @@ impl TaskPilotApp {
 
     /// Load task detail runs (metadata only) and paginate for the current view.
     pub(crate) fn load_task_detail_runs(&mut self, task_name: &str) {
-        self.selected_task_all_runs = self.workspace.load_runs_metadata(task_name);
+        self.selected_task_all_runs = self.workspace.load_runs_metadata(task_name, 200);
         let (page_runs, total) = Self::paginate_runs(
             &self.selected_task_all_runs,
             self.run_status_filter.as_ref(),
@@ -667,7 +667,7 @@ impl eframe::App for TaskPilotApp {
             self.refresh_task_statuses();
 
             if let View::TaskDetail(ref name) = self.current_view {
-                self.selected_task_all_runs = self.workspace.load_runs_metadata(name);
+                self.selected_task_all_runs = self.workspace.load_runs_metadata(name, 200);
                 let (page_runs, total) = Self::paginate_runs(
                     &self.selected_task_all_runs,
                     self.run_status_filter.as_ref(),
