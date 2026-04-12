@@ -241,6 +241,7 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
     if filter_changed {
         app.run_page = 0;
         app.expanded_run_outputs.clear();
+        app.expanded_runs.clear();
         let (page_runs, total) = TaskPilotApp::paginate_runs(
             &app.selected_task_all_runs,
             app.run_status_filter.as_ref(),
@@ -300,6 +301,8 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
         egui::Frame::group(ui.style())
             .inner_margin(egui::Margin::same(10.0))
             .show(ui, |ui| {
+                let is_expanded = app.expanded_runs.contains(&run_key);
+
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(icon).color(color).strong());
                     ui.label(egui::RichText::new(format!("{:?}", run.status)).color(color));
@@ -321,6 +324,15 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
                     );
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let btn_label = if is_expanded { "▼ Details" } else { "▶ Details" };
+                        if ui.button(egui::RichText::new(btn_label).small()).clicked() {
+                            if is_expanded {
+                                app.expanded_runs.remove(&run_key);
+                            } else {
+                                app.expanded_runs.insert(run_key.clone());
+                            }
+                        }
+
                         if let Some(ms) = run.duration_ms {
                             ui.label(
                                 egui::RichText::new(format!("{:.1}s", ms as f64 / 1000.0))
@@ -338,14 +350,11 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
                     });
                 });
 
-                // Show task config snapshot if available
-                if let Some(ref cfg) = run.config {
-                    ui.add_space(4.0);
-                    egui::CollapsingHeader::new(
-                        egui::RichText::new("📋 Task Config").small().color(MUTED),
-                    )
-                    .id_source(format!("config-{}", run_key))
-                    .show(ui, |ui| {
+                if is_expanded {
+                    // Show task config snapshot if available
+                    if let Some(ref cfg) = run.config {
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new("📋 Task Config").small().color(MUTED));
                         egui::Grid::new(format!("config-grid-{}", run_key))
                             .num_columns(2)
                             .spacing([12.0, 4.0])
@@ -364,20 +373,15 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
                                 field(ui, "Notify on Failure:", if cfg.notify_on_failure { "yes" } else { "no" });
                                 field(ui, "Run Missed:", if cfg.run_missed { "yes" } else { "no" });
                             });
-                    });
-                }
+                    }
 
-                // Collapsible output — lazy-loaded on expand
-                let has_output_log = run.output_log_path.is_some();
-                let has_legacy_output = !run.stdout.is_empty() || !run.stderr.is_empty();
-                if has_output_log || has_legacy_output {
-                    ui.add_space(4.0);
-                    egui::CollapsingHeader::new(
-                        egui::RichText::new("📄 Output").small().color(MUTED),
-                    )
-                    .id_source(format!("output-{}", run_key))
-                    .default_open(false)
-                    .show(ui, |ui| {
+                    // Output — lazy-loaded on expand
+                    let has_output_log = run.output_log_path.is_some();
+                    let has_legacy_output = !run.stdout.is_empty() || !run.stderr.is_empty();
+                    if has_output_log || has_legacy_output {
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new("📄 Output").small().color(MUTED));
+
                         // Lazy-load: check cache first, then load from disk
                         let content = if let Some(cached) = app.expanded_run_outputs.get(&run_key) {
                             cached.clone()
@@ -400,7 +404,6 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
                         };
 
                         if !content.is_empty() {
-                            // Truncate to last 200 lines for display
                             let display_text: String = {
                                 let lines: Vec<&str> = content.lines().collect();
                                 if lines.len() > 200 {
@@ -427,7 +430,7 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
                                         });
                                 });
                         }
-                    });
+                    }
                 }
             });
 
@@ -458,6 +461,7 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
     // Apply page change
     if page_changed {
         app.expanded_run_outputs.clear();
+        app.expanded_runs.clear();
         let (page_runs, total) = TaskPilotApp::paginate_runs(
             &app.selected_task_all_runs,
             app.run_status_filter.as_ref(),

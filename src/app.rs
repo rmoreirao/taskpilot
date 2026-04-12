@@ -6,7 +6,7 @@ use crate::tray::{TrayEvent, TrayManager};
 use crate::updater::{self, UpdateState};
 use crate::workspace::{TaskRun, RunStatus, Workspace};
 use eframe::egui;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -76,6 +76,8 @@ pub struct TaskPilotApp {
     pub(crate) run_status_filter: Option<RunStatus>,
     /// Lazily-loaded output content, keyed by run timestamp string.
     pub(crate) expanded_run_outputs: HashMap<String, String>,
+    /// Tracks which run entries are expanded in the execution history.
+    pub(crate) expanded_runs: HashSet<String>,
     last_refresh: Instant,
     pub(crate) notifications: Vec<NotificationItem>,
     pub(crate) search_filter: String,
@@ -147,6 +149,7 @@ impl TaskPilotApp {
             runs_per_page: 15,
             run_status_filter: None,
             expanded_run_outputs: HashMap::new(),
+            expanded_runs: HashSet::new(),
             last_refresh: Instant::now(),
             notifications: Vec::new(),
             search_filter: String::new(),
@@ -243,6 +246,7 @@ impl TaskPilotApp {
         self.selected_task_runs = page_runs;
         self.selected_task_runs_total = total;
         self.expanded_run_outputs.clear();
+        self.expanded_runs.clear();
     }
 
     /// Filter and paginate a list of runs. Returns (page_items, total_matching).

@@ -207,6 +207,7 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
         app.run_page = 0;
         app.run_status_filter = None;
         app.expanded_run_outputs.clear();
+        app.expanded_runs.clear();
         app.load_task_detail_runs(&name);
         app.current_view = View::TaskDetail(name);
     }
