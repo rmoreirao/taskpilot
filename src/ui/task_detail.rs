@@ -116,12 +116,22 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
         ui.add_space(8.0);
     }
 
-    // Run Now button (disabled while running)
+    // Run Now / Stop buttons
     let task_name_owned = task_name.to_string();
-    ui.add_enabled_ui(!is_running, |ui| {
-        if ui.button("▶ Run Now").clicked() {
-            app.trigger_task(&task_name_owned);
-        }
+    ui.horizontal(|ui| {
+        ui.add_enabled_ui(!is_running, |ui| {
+            if ui.button("▶ Run Now").clicked() {
+                app.trigger_task(&task_name_owned);
+            }
+        });
+        ui.add_enabled_ui(is_running, |ui| {
+            if ui
+                .button(egui::RichText::new("■ Stop").color(RED))
+                .clicked()
+            {
+                app.stop_task(&task_name_owned);
+            }
+        });
     });
 
     // Live output section with refresh controls
