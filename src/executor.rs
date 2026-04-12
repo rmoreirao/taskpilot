@@ -1,7 +1,7 @@
 use crate::config::{Shell, TaskConfig};
 use crate::logging::LogLevel;
 use crate::workspace::{TaskRun, TaskRunConfig, RunStatus, Workspace};
-use chrono::Local;
+use chrono::{DateTime, Local};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::Command;
@@ -86,7 +86,10 @@ pub fn parse_duration(s: &str) -> Option<Duration> {
 }
 
 pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelToken, shell: Shell) -> TaskRun {
-    let started_at = Local::now();
+    execute_task_at(task, workspace, cancel, shell, Local::now())
+}
+
+pub fn execute_task_at(task: &TaskConfig, workspace: &Workspace, cancel: &CancelToken, shell: Shell, started_at: DateTime<Local>) -> TaskRun {
     let start_instant = Instant::now();
     let timeout = task.timeout.as_ref().and_then(|t| parse_duration(t));
     let retries = task.retries.unwrap_or(0);

@@ -152,7 +152,14 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
         let live_content = app.live_logs.get(task_name).cloned().unwrap_or_default();
 
         if live_content.is_empty() {
-            ui.label(egui::RichText::new("Waiting for output…").color(MUTED));
+            let path_hint = app.running_tasks.get(task_name).map(|info| {
+                app.workspace.output_log_path(task_name, &info.started_at)
+            });
+            let msg = match path_hint {
+                Some(p) => format!("Waiting for output file {}…", p.display()),
+                None => "Waiting for output…".to_string(),
+            };
+            ui.label(egui::RichText::new(msg).color(MUTED));
         } else {
             let display_text: String = {
                 let lines: Vec<&str> = live_content.lines().collect();

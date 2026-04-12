@@ -1,5 +1,5 @@
 use crate::config::AppConfig;
-use crate::executor::{execute_task, new_cancel_token, resolve_shell, CancelToken};
+use crate::executor::{execute_task_at, new_cancel_token, resolve_shell, CancelToken};
 use crate::logging::LogLevel;
 use crate::workspace::{TaskScheduleState, RunStatus, SchedulerState, Workspace};
 use chrono::{DateTime, Local};
@@ -36,7 +36,7 @@ pub enum SchedulerCommand {
 }
 
 pub enum SchedulerEvent {
-    TaskStarted(String, TaskTrigger),
+    TaskStarted(String, TaskTrigger, DateTime<Local>),
     TaskFinished(String, RunStatus, TaskTrigger),
     TaskSkipped {
         name: String,
@@ -361,7 +361,8 @@ fn spawn_task(
     }
     let _ = workspace.save_state(state);
 
-    let _ = evt_tx.send(SchedulerEvent::TaskStarted(name.to_string(), trigger.clone()));
+    let started_at = Local::now();
+    let _ = evt_tx.send(SchedulerEvent::TaskStarted(name.to_string(), trigger.clone(), started_at));
 
     let ws = Arc::clone(workspace);
     let evt = evt_tx.clone();
@@ -372,7 +373,7 @@ fn spawn_task(
     let shell = resolve_shell(task.shell, config.general.default_shell);
 
     thread::spawn(move || {
-        let run = execute_task(&task, &ws, &cancel, shell);
+        let run = execute_task_at(&task, &ws, &cancel, shell, started_at);
         let status = run.status.clone();
 
         // Persist last_status and re-advance next_run to first future occurrence

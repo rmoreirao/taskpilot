@@ -300,10 +300,10 @@ impl TaskPilotApp {
     fn process_events(&mut self) {
         while let Ok(evt) = self.scheduler.evt_rx.try_recv() {
             match evt {
-                SchedulerEvent::TaskStarted(name, _trigger) => {
+                SchedulerEvent::TaskStarted(name, _trigger, started_at) => {
                     self.running_tasks.insert(name, RunningTaskInfo {
                         since: Instant::now(),
-                        started_at: Local::now(),
+                        started_at,
                     });
                 }
                 SchedulerEvent::TaskFinished(name, status, trigger) => {
