@@ -59,7 +59,7 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
                 .inner_margin(egui::Margin::same(10.0))
                 .show(ui, |ui| {
                     ui.label(egui::RichText::new("Schedule").small().color(MUTED));
-                    ui.label(egui::RichText::new(&config.cron).monospace().color(BLUE));
+                    ui.label(egui::RichText::new(config.cron.as_deref().unwrap_or("trigger-only")).monospace().color(BLUE));
                 });
 
             egui::Frame::group(ui.style())
@@ -96,9 +96,48 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
         });
     }
 
-    ui.add_space(12.0);
+    // Triggers section — show downstream tasks triggered by this task
+    if let Some(config) = &task_config {
+        if !config.triggers.is_empty() {
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("🔗 Triggers:").color(MUTED));
+                for trigger in &config.triggers {
+                    let label = format!("{} (on {})", trigger.task, trigger.condition);
+                    if ui
+                        .link(egui::RichText::new(&label).color(BLUE))
+                        .clicked()
+                    {
+                        app.current_view = View::TaskDetail(trigger.task.clone());
+                    }
+                }
+            });
+        }
 
-    // Running status badge
+        // "Triggered by" — show tasks that trigger this task
+        let triggered_by: Vec<String> = app
+            .config
+            .tasks
+            .iter()
+            .filter(|t| t.triggers.iter().any(|tr| tr.task == config.name))
+            .map(|t| t.name.clone())
+            .collect();
+        if !triggered_by.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("⬅ Triggered by:").color(MUTED));
+                for source in &triggered_by {
+                    if ui
+                        .link(egui::RichText::new(source).color(BLUE))
+                        .clicked()
+                    {
+                        app.current_view = View::TaskDetail(source.clone());
+                    }
+                }
+            });
+        }
+    }
+
+    ui.add_space(12.0);
     let is_running = app.running_tasks.contains_key(task_name);
     if is_running {
         ui.horizontal(|ui| {

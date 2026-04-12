@@ -96,7 +96,7 @@ pub fn execute_task_at(task: &TaskConfig, workspace: &Workspace, cancel: &Cancel
 
     let run_config = TaskRunConfig {
         command: task.command.clone(),
-        cron: task.cron.clone(),
+        cron: task.cron.clone().unwrap_or_default(),
         timeout: task.timeout.clone(),
         working_dir: task.working_dir.clone(),
         notify_on_failure: task.notify_on_failure,
@@ -116,7 +116,7 @@ pub fn execute_task_at(task: &TaskConfig, workspace: &Workspace, cancel: &Cancel
         &format!(
             "Task '{}' config: cron=\"{}\", timeout={}, working_dir={}, retries={}, notify_on_failure={}, shell={}",
             task.name,
-            task.cron,
+            task.cron.as_deref().unwrap_or("none"),
             task.timeout.as_deref().unwrap_or("none"),
             task.working_dir.as_deref().unwrap_or("(default)"),
             retries,

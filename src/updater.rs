@@ -68,9 +68,12 @@ pub struct ReleaseInfo {
     pub cli_asset_url: Option<String>,
 }
 
-/// Check the GitHub API for the latest release. Returns `None` if no releases exist.
+/// Check the GitHub API for the newest release by semver. Returns `None` if no releases exist.
 pub fn check_latest_release() -> Result<Option<ReleaseInfo>, String> {
-    let url = format!("{}/repos/{}/releases/latest", GITHUB_API_BASE, GITHUB_REPO);
+    let url = format!(
+        "{}/repos/{}/releases?per_page=30",
+        GITHUB_API_BASE, GITHUB_REPO
+    );
 
     let client = reqwest::blocking::Client::builder()
         .user_agent(format!("TaskPilot/{}", CURRENT_VERSION))
@@ -95,28 +98,50 @@ pub fn check_latest_release() -> Result<Option<ReleaseInfo>, String> {
         ));
     }
 
-    let body: serde_json::Value = response
+    let releases: Vec<serde_json::Value> = response
         .json()
-        .map_err(|e| format!("Failed to parse release JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse releases JSON: {}", e))?;
 
-    let tag_name = body["tag_name"]
-        .as_str()
-        .ok_or("Missing tag_name in release")?
-        .to_string();
+    // Find the release with the highest semver version, skipping drafts and prereleases
+    let mut best: Option<(semver::Version, &serde_json::Value)> = None;
 
-    let html_url = body["html_url"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    for release in &releases {
+        if release["draft"].as_bool().unwrap_or(false) {
+            continue;
+        }
+        if release["prerelease"].as_bool().unwrap_or(false) {
+            continue;
+        }
 
+        let tag = match release["tag_name"].as_str() {
+            Some(t) => t,
+            None => continue,
+        };
+        let ver_str = tag.strip_prefix('v').unwrap_or(tag);
+        let ver = match semver::Version::parse(ver_str) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if best.as_ref().map_or(true, |(best_ver, _)| ver > *best_ver) {
+            best = Some((ver, release));
+        }
+    }
+
+    let (_version, body) = match best {
+        Some(b) => b,
+        None => return Ok(None),
+    };
+
+    let tag_name = body["tag_name"].as_str().unwrap_or("").to_string();
+    let html_url = body["html_url"].as_str().unwrap_or("").to_string();
     let version = tag_name.strip_prefix('v').unwrap_or(&tag_name).to_string();
 
     // Find download URLs for the exe assets
-    let assets = body["assets"].as_array();
     let mut gui_asset_url = None;
     let mut cli_asset_url = None;
 
-    if let Some(assets) = assets {
+    if let Some(assets) = body["assets"].as_array() {
         for asset in assets {
             let name = asset["name"].as_str().unwrap_or("");
             let download_url = asset["browser_download_url"].as_str().unwrap_or("");

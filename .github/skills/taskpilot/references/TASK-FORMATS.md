@@ -43,6 +43,27 @@ shell = "pwsh"
 timeout = "5m"
 ```
 
+### Single-task with triggers
+
+```toml
+name = "build"
+command = "cargo build --release"
+cron = "0 8 * * *"
+triggers = [
+  { task = "test", on = "success" },
+  { task = "notify-failure", on = "failure" },
+]
+```
+
+### Trigger-only task (no cron)
+
+Tasks that are only triggered by other tasks can omit the `cron` field:
+
+```toml
+name = "deploy"
+command = "deploy.ps1"
+```
+
 TaskPilot tries multi-task parsing first. If no `[[task]]` array is found, it falls back to
 single-task parsing.
 

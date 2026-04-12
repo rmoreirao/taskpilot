@@ -1,0 +1,26 @@
+# Test config for trigger cycle detection.
+# A → B → A should be rejected at load time.
+
+[general]
+log_level = "info"
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "task-a"
+command = "echo A"
+cron = "*/5 * * * *"
+shell = "cmd"
+triggers = [
+  { task = "task-b" },
+]
+
+[[task]]
+name = "task-b"
+command = "echo B"
+cron = "*/5 * * * *"
+shell = "cmd"
+triggers = [
+  { task = "task-a" },
+]

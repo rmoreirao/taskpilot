@@ -1,0 +1,22 @@
+# Test config for task triggers — success chain
+# echo-first triggers echo-second on success.
+
+[general]
+log_level = "info"
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "echo-first"
+command = "echo First task"
+cron = "*/5 * * * *"
+shell = "cmd"
+triggers = [
+  { task = "echo-second", on = "success" },
+]
+
+[[task]]
+name = "echo-second"
+command = "echo Second task"
+shell = "cmd"

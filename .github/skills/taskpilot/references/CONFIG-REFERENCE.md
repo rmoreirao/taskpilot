@@ -73,18 +73,19 @@ Each task is a repeatable `[[task]]` table. You can define as many as needed.
 |---|---|---|
 | `name` | string | Unique identifier shown in the dashboard. Must be unique across all sources (local + external). |
 | `command` | string | Command to run. Executed via the resolved shell (see `shell` field and `general.default_shell`). Defaults to `cmd /C` on Windows, `sh -c` elsewhere. |
-| `cron` | string | Standard 5-field cron expression: `minute hour day month weekday`. Evaluated in local system time. |
 
 ### Optional Fields
 
 | Field | Type | Default | Description |
 |---|---|---|---|
+| `cron` | string | none | Standard 5-field cron expression: `minute hour day month weekday`. Evaluated in local system time. Required unless the task is only triggered by other tasks. |
 | `timeout` | string | none | Maximum run time before the task is killed. Format: `"30s"`, `"5m"`, `"1h"`, or plain seconds `"60"`. |
 | `working_dir` | string | none | Directory to run the command in. Supports `~/` expansion. |
 | `notify_on_failure` | boolean | `true` | Override the global notification setting for this task. |
 | `retries` | integer | `0` | Number of additional attempts if the task fails (exit code ≠ 0). The task is retried immediately. |
 | `run_missed` | boolean | `true` | Execute this task on catch-up if it was missed while TaskPilot was not running or the machine was asleep. When `false`, overdue runs are skipped and `next_run` advances to the next future occurrence. |
 | `shell` | string | *(inherited)* | Shell to execute this task's command. One of: `"cmd"`, `"powershell"`, `"pwsh"`, `"sh"`, `"bash"`. Overrides `general.default_shell`. If neither is set, uses `powershell` on Windows or `sh` on Unix. PowerShell variants run with `-NoProfile -NonInteractive -Command`. |
+| `triggers` | array of tables | `[]` | Downstream tasks to trigger when this task completes. See **Triggers** section below. |
 
 ### Example
 
@@ -105,6 +106,49 @@ command = "Get-Service | Where-Object { $_.Status -ne 'Running' } | ForEach-Obje
 cron = "*/30 * * * *"
 shell = "pwsh"
 timeout = "1m"
+```
+
+### Triggers (Pipelines)
+
+Tasks can trigger downstream tasks when they complete. Each trigger specifies a target task and a condition.
+
+| Trigger Field | Type | Default | Description |
+|---|---|---|---|
+| `task` | string | *(required)* | Name of the downstream task to run. Must exist in the merged task list. |
+| `on` | string | `"success"` | Condition: `"success"` (task passed), `"failure"` (task failed or timed out), `"always"` (any terminal status). |
+
+**Validation rules:**
+- Trigger targets must reference existing task names.
+- A task cannot trigger itself.
+- Circular trigger chains (A → B → A) are detected and rejected at config load time.
+
+**Trigger-only tasks:** Tasks that are only triggered by other tasks can omit the `cron` field entirely.
+
+```toml
+# Build → Test → Deploy pipeline
+[[task]]
+name = "build"
+command = "cargo build --release"
+cron = "0 8 * * *"
+triggers = [
+  { task = "test", on = "success" },
+  { task = "alert-team", on = "failure" },
+]
+
+[[task]]
+name = "test"
+command = "cargo test"
+triggers = [
+  { task = "deploy", on = "success" },
+]
+
+[[task]]
+name = "deploy"
+command = "deploy.ps1"
+
+[[task]]
+name = "alert-team"
+command = "Send-Alert 'Build failed!'"
 ```
 
 ---

@@ -271,7 +271,99 @@ pub fn load_all(
         );
     }
 
+    // Validate triggers: targets must exist, no self-triggers, no cycles
+    validate_triggers(&all_tasks, workspace)?;
+
     Ok((all_tasks, source_map))
+}
+
+/// Validate that all trigger targets exist and the trigger graph is acyclic.
+fn validate_triggers(tasks: &[TaskConfig], workspace: Option<&Workspace>) -> Result<(), String> {
+    let task_names: std::collections::HashSet<&str> = tasks.iter().map(|t| t.name.as_str()).collect();
+
+    // Check each trigger target exists and no self-triggers
+    for task in tasks {
+        for trigger in &task.triggers {
+            if trigger.task == task.name {
+                let msg = format!("Task '{}' triggers itself", task.name);
+                if let Some(ws) = workspace {
+                    ws.log_task(LogLevel::Error, "sources", &msg);
+                }
+                return Err(msg);
+            }
+            if !task_names.contains(trigger.task.as_str()) {
+                let msg = format!(
+                    "Task '{}' has trigger for unknown task '{}'",
+                    task.name, trigger.task
+                );
+                if let Some(ws) = workspace {
+                    ws.log_task(LogLevel::Error, "sources", &msg);
+                }
+                return Err(msg);
+            }
+        }
+    }
+
+    // Build adjacency list and detect cycles via DFS
+    let adj: HashMap<&str, Vec<&str>> = tasks
+        .iter()
+        .map(|t| {
+            let targets: Vec<&str> = t.triggers.iter().map(|tr| tr.task.as_str()).collect();
+            (t.name.as_str(), targets)
+        })
+        .collect();
+
+    // DFS cycle detection: 0=unvisited, 1=in-stack, 2=done
+    let mut state: HashMap<&str, u8> = task_names.iter().map(|&n| (n, 0u8)).collect();
+    let mut path: Vec<&str> = Vec::new();
+
+    for &name in &task_names {
+        if state[name] == 0 {
+            if let Some(cycle) = dfs_find_cycle(name, &adj, &mut state, &mut path) {
+                let msg = format!("Trigger cycle detected: {}", cycle.join(" → "));
+                if let Some(ws) = workspace {
+                    ws.log_task(LogLevel::Error, "sources", &msg);
+                }
+                return Err(msg);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn dfs_find_cycle<'a>(
+    node: &'a str,
+    adj: &HashMap<&'a str, Vec<&'a str>>,
+    state: &mut HashMap<&'a str, u8>,
+    path: &mut Vec<&'a str>,
+) -> Option<Vec<String>> {
+    state.insert(node, 1); // in-stack
+    path.push(node);
+
+    if let Some(neighbors) = adj.get(node) {
+        for &next in neighbors {
+            match state.get(next).copied().unwrap_or(0) {
+                1 => {
+                    // Found cycle — extract the cycle portion of the path
+                    let cycle_start = path.iter().position(|&n| n == next).unwrap();
+                    let mut cycle: Vec<String> = path[cycle_start..].iter().map(|s| s.to_string()).collect();
+                    cycle.push(next.to_string());
+                    return Some(cycle);
+                }
+                0 => {
+                    if let Some(cycle) = dfs_find_cycle(next, adj, state, path) {
+                        return Some(cycle);
+                    }
+                }
+                _ => {} // already done
+            }
+        }
+    }
+
+    path.pop();
+    state.insert(node, 2); // done
+    None
 }
 
 fn expand_home(path: &str) -> String {

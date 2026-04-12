@@ -1,6 +1,44 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// Condition under which a trigger fires after a task completes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TriggerCondition {
+    /// Fire only when the task passes (default).
+    Success,
+    /// Fire only when the task fails or times out.
+    Failure,
+    /// Fire regardless of outcome.
+    Always,
+}
+
+impl Default for TriggerCondition {
+    fn default() -> Self {
+        TriggerCondition::Success
+    }
+}
+
+impl std::fmt::Display for TriggerCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TriggerCondition::Success => write!(f, "success"),
+            TriggerCondition::Failure => write!(f, "failure"),
+            TriggerCondition::Always => write!(f, "always"),
+        }
+    }
+}
+
+/// A downstream task to trigger when the parent task finishes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerConfig {
+    /// Name of the task to trigger.
+    pub task: String,
+    /// Condition under which to trigger (`success`, `failure`, `always`).
+    #[serde(default, rename = "on")]
+    pub condition: TriggerCondition,
+}
+
 /// Shell used to execute task commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -132,7 +170,8 @@ impl Default for UpdateConfig {
 pub struct TaskConfig {
     pub name: String,
     pub command: String,
-    pub cron: String,
+    #[serde(default)]
+    pub cron: Option<String>,
     #[serde(default)]
     pub timeout: Option<String>,
     #[serde(default)]
@@ -145,6 +184,8 @@ pub struct TaskConfig {
     pub run_missed: bool,
     #[serde(default)]
     pub shell: Option<Shell>,
+    #[serde(default)]
+    pub triggers: Vec<TriggerConfig>,
 }
 
 impl AppConfig {
@@ -163,24 +204,26 @@ impl AppConfig {
                 TaskConfig {
                     name: "example-hello".to_string(),
                     command: "Write-Output 'Hello from TaskPilot!'".to_string(),
-                    cron: "*/5 * * * *".to_string(),
+                    cron: Some("*/5 * * * *".to_string()),
                     timeout: Some("30s".to_string()),
                     working_dir: None,
                     notify_on_failure: true,
                     retries: None,
                     run_missed: true,
                     shell: None,
+                    triggers: Vec::new(),
                 },
                 TaskConfig {
                     name: "example-date".to_string(),
                     command: "Get-Date -Format 'yyyy-MM-dd'".to_string(),
-                    cron: "*/2 * * * *".to_string(),
+                    cron: Some("*/2 * * * *".to_string()),
                     timeout: Some("10s".to_string()),
                     working_dir: None,
                     notify_on_failure: true,
                     retries: None,
                     run_missed: true,
                     shell: None,
+                    triggers: Vec::new(),
                 },
             ],
         }

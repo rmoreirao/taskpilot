@@ -44,6 +44,34 @@ cron = "*/2 * * * *"
 timeout = "10s"
 notify_on_failure = true
 
+# ── Task triggers (pipelines) ──────────────────────────────────────
+# Chain tasks together: when a task finishes, trigger downstream tasks.
+# Each trigger specifies a target task and a condition:
+#   on = "success"  — fire only when task passes (default)
+#   on = "failure"  — fire when task fails or times out
+#   on = "always"   — fire regardless of outcome
+#
+# Trigger-only tasks can omit the cron field entirely.
+# Cycles (A → B → A) are detected and rejected at load time.
+#
+# [[task]]
+# name = "build"
+# command = "cargo build --release"
+# cron = "0 8 * * *"
+# triggers = [
+#   { task = "test", on = "success" },
+#   { task = "alert-team", on = "failure" },
+# ]
+#
+# [[task]]
+# name = "test"
+# command = "cargo test"
+# triggers = [{ task = "deploy", on = "success" }]
+#
+# [[task]]
+# name = "deploy"
+# command = "deploy.ps1"
+
 # Commands with Windows paths or embedded quotes: use single-quoted TOML strings
 # so that backslashes are treated literally (no escape processing).
 # [[task]]

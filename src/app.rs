@@ -287,7 +287,7 @@ impl TaskPilotApp {
                 TaskStatus {
                     name: task.name.clone(),
                     command: task.command.clone(),
-                    cron: task.cron.clone(),
+                    cron: task.cron.clone().unwrap_or_default(),
                     last_run,
                     next_run,
                     is_running: self.running_tasks.contains_key(&task.name),
@@ -319,6 +319,9 @@ impl TaskPilotApp {
                     let trigger_prefix = match &trigger {
                         scheduler::TaskTrigger::CatchUp { scheduled_for } => {
                             format!("⏰ catch-up (due {}) — ", scheduled_for.format("%H:%M"))
+                        }
+                        scheduler::TaskTrigger::Triggered { source, source_status } => {
+                            format!("🔗 triggered by '{}' ({:?}) — ", source, source_status)
                         }
                         _ => String::new(),
                     };

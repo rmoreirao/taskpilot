@@ -2,7 +2,7 @@
 // Unlike the main GUI binary (windows_subsystem = "windows"), this
 // binary has a normal console so stdout/stderr work in all terminals.
 
-use taskpilot::config::AppConfig;
+use taskpilot::config::{AppConfig, TriggerCondition};
 use taskpilot::executor;
 use taskpilot::logging::parse_log_level;
 use taskpilot::task_sources;
@@ -130,7 +130,7 @@ fn main() {
                     }
                 })
                 .unwrap_or_else(|| "unknown".to_string());
-            println!("  {} [{}] -- {}", task.name, origin, task.cron);
+            println!("  {} [{}] -- {}", task.name, origin, task.cron.as_deref().unwrap_or("trigger-only"));
         }
         std::process::exit(0);
     }
@@ -217,58 +217,96 @@ fn main() {
             }
         };
 
-        println!("Running task '{}'...", task.name);
-        let cancel = executor::new_cancel_token();
-        let shell = executor::resolve_shell(task.shell, effective_config.general.default_shell);
-        let run = executor::execute_task(&task, &workspace, &cancel, shell);
-
-        // Print output from the output.log file (new format) or legacy embedded fields
-        if let Some(ref log_path) = run.output_log_path {
-            if let Ok(content) = std::fs::read_to_string(log_path) {
-                if !content.is_empty() {
-                    print!("{}", content);
-                }
-            }
-        } else {
-            if !run.stdout.is_empty() {
-                print!("{}", run.stdout);
-            }
-            if !run.stderr.is_empty() {
-                eprint!("{}", run.stderr);
-            }
-        }
-
-        let exit_code = match run.status {
-            RunStatus::Passed => {
-                println!(
-                    "[taskpilot] Task '{}' passed ({}ms)",
-                    task.name,
-                    run.duration_ms.unwrap_or(0)
-                );
-                run.exit_code.unwrap_or(0)
-            }
-            RunStatus::Failed => {
-                eprintln!(
-                    "[taskpilot] Task '{}' failed (exit code: {})",
-                    task.name,
-                    run.exit_code.unwrap_or(-1)
-                );
-                run.exit_code.unwrap_or(1)
-            }
-            RunStatus::Timeout => {
-                eprintln!("[taskpilot] Task '{}' timed out", task.name);
-                124
-            }
-            RunStatus::Running => {
-                eprintln!("[taskpilot] Task '{}' in unexpected state", task.name);
-                1
-            }
-            RunStatus::Stopped => {
-                eprintln!("[taskpilot] Task '{}' was stopped", task.name);
-                130
-            }
-        };
-
+        let exit_code = run_task_with_triggers(&task, &effective_config, &workspace, None);
         std::process::exit(exit_code);
     }
+}
+
+/// Run a task and recursively fire its triggers. Returns the exit code of the initial task.
+fn run_task_with_triggers(
+    task: &taskpilot::config::TaskConfig,
+    config: &AppConfig,
+    workspace: &Arc<Workspace>,
+    triggered_by: Option<(&str, &RunStatus)>,
+) -> i32 {
+    if let Some((source, source_status)) = triggered_by {
+        println!(
+            "[taskpilot] Triggering '{}' (on completion of '{}', status: {:?})",
+            task.name, source, source_status
+        );
+    } else {
+        println!("Running task '{}'...", task.name);
+    }
+
+    let cancel = executor::new_cancel_token();
+    let shell = executor::resolve_shell(task.shell, config.general.default_shell);
+    let run = executor::execute_task(task, workspace, &cancel, shell);
+
+    // Print output from the output.log file (new format) or legacy embedded fields
+    if let Some(ref log_path) = run.output_log_path {
+        if let Ok(content) = std::fs::read_to_string(log_path) {
+            if !content.is_empty() {
+                print!("{}", content);
+            }
+        }
+    } else {
+        if !run.stdout.is_empty() {
+            print!("{}", run.stdout);
+        }
+        if !run.stderr.is_empty() {
+            eprint!("{}", run.stderr);
+        }
+    }
+
+    let exit_code = match run.status {
+        RunStatus::Passed => {
+            println!(
+                "[taskpilot] Task '{}' passed ({}ms)",
+                task.name,
+                run.duration_ms.unwrap_or(0)
+            );
+            run.exit_code.unwrap_or(0)
+        }
+        RunStatus::Failed => {
+            eprintln!(
+                "[taskpilot] Task '{}' failed (exit code: {})",
+                task.name,
+                run.exit_code.unwrap_or(-1)
+            );
+            run.exit_code.unwrap_or(1)
+        }
+        RunStatus::Timeout => {
+            eprintln!("[taskpilot] Task '{}' timed out", task.name);
+            124
+        }
+        RunStatus::Running => {
+            eprintln!("[taskpilot] Task '{}' in unexpected state", task.name);
+            1
+        }
+        RunStatus::Stopped => {
+            eprintln!("[taskpilot] Task '{}' was stopped", task.name);
+            130
+        }
+    };
+
+    // Fire matching triggers
+    for trigger_cfg in &task.triggers {
+        let should_fire = match trigger_cfg.condition {
+            TriggerCondition::Success => run.status == RunStatus::Passed,
+            TriggerCondition::Failure => run.status == RunStatus::Failed || run.status == RunStatus::Timeout,
+            TriggerCondition::Always => run.status != RunStatus::Running,
+        };
+        if should_fire {
+            if let Some(target) = config.tasks.iter().find(|t| t.name == trigger_cfg.task) {
+                run_task_with_triggers(target, config, workspace, Some((&task.name, &run.status)));
+            } else {
+                eprintln!(
+                    "[taskpilot] Warning: trigger target '{}' not found",
+                    trigger_cfg.task
+                );
+            }
+        }
+    }
+
+    exit_code
 }

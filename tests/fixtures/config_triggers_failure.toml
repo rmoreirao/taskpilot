@@ -1,0 +1,28 @@
+# Test config for task triggers — failure chain
+# fail-task triggers echo-on-fail on failure.
+
+[general]
+log_level = "info"
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "fail-task"
+command = "exit 1"
+cron = "*/5 * * * *"
+shell = "cmd"
+triggers = [
+  { task = "echo-on-fail", on = "failure" },
+  { task = "echo-on-success", on = "success" },
+]
+
+[[task]]
+name = "echo-on-fail"
+command = "echo Failure handler ran"
+shell = "cmd"
+
+[[task]]
+name = "echo-on-success"
+command = "echo This should not run"
+shell = "cmd"

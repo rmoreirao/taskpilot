@@ -416,3 +416,109 @@ shell = "powershell"
         .success()
         .stdout(contains("external-ps-works"));
 }
+
+// ─── Trigger tests ──────────────────────────────────────────────────────────
+
+#[test]
+fn trigger_chain_runs_downstream_on_success() {
+    let ws = TestWorkspace::from_fixture("config_triggers.toml");
+    ws.cli_cmd()
+        .args(["--run", "echo-first"])
+        .assert()
+        .success()
+        .stdout(contains("First task"))
+        .stdout(contains("Triggering 'echo-second'"))
+        .stdout(contains("Second task"));
+}
+
+#[test]
+fn trigger_failure_fires_failure_handler() {
+    let ws = TestWorkspace::from_fixture("config_triggers_failure.toml");
+    ws.cli_cmd()
+        .args(["--run", "fail-task"])
+        .assert()
+        .failure()
+        .stdout(contains("Failure handler ran"))
+        // success-only trigger should NOT fire
+        .stdout(contains("Triggering 'echo-on-fail'"));
+}
+
+#[test]
+fn trigger_failure_does_not_fire_success_handler() {
+    let ws = TestWorkspace::from_fixture("config_triggers_failure.toml");
+    let output = ws
+        .cli_cmd()
+        .args(["--run", "fail-task"])
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("This should not run"),
+        "Success-only trigger should not fire when task fails"
+    );
+}
+
+#[test]
+fn trigger_cycle_detected_at_load_time() {
+    let ws = TestWorkspace::from_fixture("config_triggers_cycle.toml");
+    ws.cli_cmd()
+        .arg("--list")
+        .assert()
+        .success()
+        .stderr(contains("cycle"));
+}
+
+#[test]
+fn trigger_only_task_listed_without_cron() {
+    let ws = TestWorkspace::from_fixture("config_triggers.toml");
+    ws.cli_cmd()
+        .arg("--list")
+        .assert()
+        .success()
+        .stdout(contains("echo-second"))
+        .stdout(contains("trigger-only"));
+}
+
+#[test]
+fn trigger_self_reference_rejected() {
+    let ws = TestWorkspace::from_config_str(
+        r#"
+[notifications]
+enabled = false
+
+[[task]]
+name = "self-trigger"
+command = "echo hi"
+cron = "*/5 * * * *"
+shell = "cmd"
+triggers = [{ task = "self-trigger" }]
+"#,
+    );
+    ws.cli_cmd()
+        .arg("--list")
+        .assert()
+        .success()
+        .stderr(contains("triggers itself"));
+}
+
+#[test]
+fn trigger_unknown_target_rejected() {
+    let ws = TestWorkspace::from_config_str(
+        r#"
+[notifications]
+enabled = false
+
+[[task]]
+name = "valid-task"
+command = "echo hi"
+cron = "*/5 * * * *"
+shell = "cmd"
+triggers = [{ task = "nonexistent" }]
+"#,
+    );
+    ws.cli_cmd()
+        .arg("--list")
+        .assert()
+        .success()
+        .stderr(contains("unknown task"));
+}

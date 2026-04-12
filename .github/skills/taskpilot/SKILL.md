@@ -137,7 +137,7 @@ For the full field-by-field reference, see [CONFIG-REFERENCE.md](references/CONF
 
 ## Adding a Task
 
-Each `[[task]]` entry requires three fields:
+Each `[[task]]` entry requires `name` and `command`. The `cron` field is required unless the task is only triggered by other tasks.
 
 ```toml
 [[task]]
@@ -146,7 +146,7 @@ command = "curl http://localhost:8080/health"   # Executed via cmd /C (default)
 cron = "*/5 * * * *"           # Standard 5-field cron expression (local time)
 ```
 
-Optional fields: `timeout` (e.g. `"30s"`, `"5m"`, `"1h"`), `working_dir`, `notify_on_failure`, `retries`, `run_missed` (default: `true` — catch up overdue tasks on startup/resume; set `false` to skip), `shell` (override: `"cmd"`, `"powershell"`, `"pwsh"`, `"sh"`, `"bash"`).
+Optional fields: `timeout` (e.g. `"30s"`, `"5m"`, `"1h"`), `working_dir`, `notify_on_failure`, `retries`, `run_missed` (default: `true` — catch up overdue tasks on startup/resume; set `false` to skip), `shell` (override: `"cmd"`, `"powershell"`, `"pwsh"`, `"sh"`, `"bash"`), `triggers` (downstream task pipeline).
 
 #### Shell override
 
@@ -164,6 +164,33 @@ shell = "pwsh"
 ```
 
 PowerShell note: non-terminating errors exit 0 by default. Use `$ErrorActionPreference = 'Stop'` or `exit 1` to ensure TaskPilot detects failures.
+
+#### Task Triggers (Pipelines)
+
+Chain tasks: when a task finishes, trigger downstream tasks based on the result.
+
+```toml
+[[task]]
+name = "build"
+command = "cargo build --release"
+cron = "0 8 * * *"
+triggers = [
+  { task = "test", on = "success" },
+  { task = "alert-team", on = "failure" },
+]
+
+[[task]]
+name = "test"
+command = "cargo test"
+triggers = [{ task = "deploy", on = "success" }]
+
+[[task]]
+name = "deploy"
+command = "deploy.ps1"
+# No cron — this task is trigger-only
+```
+
+Trigger conditions: `"success"` (default), `"failure"`, `"always"`. Cycles are rejected at config load time.
 
 ## External Task Sources
 

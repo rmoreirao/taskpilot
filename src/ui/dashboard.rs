@@ -105,8 +105,20 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
                     ui.label(egui::RichText::new("local").small().color(MUTED));
                 }
 
-                // Cron schedule
-                ui.label(egui::RichText::new(&task.cron).monospace().color(BLUE));
+                // Cron schedule + trigger badge
+                let cron_display = if task.cron.is_empty() {
+                    "trigger-only".to_string()
+                } else {
+                    task.cron.clone()
+                };
+                let has_triggers = app.config.tasks.iter()
+                    .find(|t| t.name == task.name)
+                    .map_or(false, |t| !t.triggers.is_empty());
+                if has_triggers {
+                    ui.label(egui::RichText::new(format!("{} 🔗", cron_display)).monospace().color(BLUE));
+                } else {
+                    ui.label(egui::RichText::new(&cron_display).monospace().color(BLUE));
+                }
 
                 // Last run time
                 if let Some(run) = &task.last_run {
