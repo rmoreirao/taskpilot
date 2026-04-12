@@ -138,19 +138,22 @@ fn workspace_artifacts_created() {
     let runs_dir = ws.runs_dir().join("echo-hello");
     assert!(runs_dir.exists(), "Task runs directory should exist");
 
-    let json_files: Vec<_> = std::fs::read_dir(&runs_dir)
+    // New format: each run is a subdirectory containing run.json + output.log
+    let run_dirs: Vec<_> = std::fs::read_dir(&runs_dir)
         .expect("Failed to read runs dir")
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map_or(false, |ext| ext == "json")
-        })
+        .filter(|e| e.path().is_dir() && e.path().join("run.json").exists())
         .collect();
 
     assert!(
-        !json_files.is_empty(),
-        "At least one JSON run log should exist"
+        !run_dirs.is_empty(),
+        "At least one run directory with run.json should exist"
+    );
+
+    let run_dir = &run_dirs[0].path();
+    assert!(
+        run_dir.join("output.log").exists(),
+        "output.log should exist in run directory"
     );
 }
 

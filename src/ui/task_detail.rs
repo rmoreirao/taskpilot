@@ -1,6 +1,6 @@
 use super::{BLUE, GREEN, MUTED, RED, YELLOW};
 use crate::app::{TaskPilotApp, View};
-use crate::workspace::RunStatus;
+use crate::workspace::{RunStatus, Workspace};
 use eframe::egui;
 
 pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
@@ -105,7 +105,7 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
             let elapsed = app
                 .running_tasks
                 .get(task_name)
-                .map(|started| started.elapsed().as_secs_f64())
+                .map(|info| info.since.elapsed().as_secs_f64())
                 .unwrap_or(0.0);
             ui.label(
                 egui::RichText::new(format!("● Running — {:.1}s elapsed", elapsed))
@@ -271,31 +271,52 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
                     });
                 }
 
-                // Show output
-                if !run.stderr.is_empty() {
+                // Show output from output.log or legacy stdout/stderr fields
+                let output_content = if let Some(ref log_path) = run.output_log_path {
+                    Workspace::read_output_log_from_path(log_path)
+                } else if !run.stdout.is_empty() || !run.stderr.is_empty() {
+                    // Legacy run with embedded output
+                    let mut s = String::new();
+                    if !run.stderr.is_empty() {
+                        s.push_str(&run.stderr);
+                    }
+                    if !run.stdout.is_empty() {
+                        if !s.is_empty() { s.push('\n'); }
+                        s.push_str(&run.stdout);
+                    }
+                    s
+                } else {
+                    String::new()
+                };
+
+                if !output_content.is_empty() {
                     ui.add_space(4.0);
-                    egui::Frame::none()
-                        .fill(egui::Color32::from_gray(20))
-                        .rounding(4.0)
-                        .inner_margin(egui::Margin::same(8.0))
-                        .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new(&run.stderr)
-                                    .monospace()
-                                    .small()
-                                    .color(RED),
-                            );
-                        });
-                }
-                if !run.stdout.is_empty() {
-                    ui.add_space(4.0);
-                    egui::Frame::none()
-                        .fill(egui::Color32::from_gray(20))
-                        .rounding(4.0)
-                        .inner_margin(egui::Margin::same(8.0))
-                        .show(ui, |ui| {
-                            ui.label(egui::RichText::new(&run.stdout).monospace().small());
-                        });
+                    // Show last 200 lines to avoid UI lag on huge logs
+                    let display_text: String = {
+                        let lines: Vec<&str> = output_content.lines().collect();
+                        if lines.len() > 200 {
+                            format!("… ({} lines omitted)\n{}", lines.len() - 200, lines[lines.len() - 200..].join("\n"))
+                        } else {
+                            output_content
+                        }
+                    };
+                    egui::CollapsingHeader::new(
+                        egui::RichText::new("📄 Output Log").small().color(MUTED),
+                    )
+                    .id_source(format!("output-{}", run.started_at.timestamp_millis()))
+                    .show(ui, |ui| {
+                        egui::Frame::none()
+                            .fill(egui::Color32::from_gray(20))
+                            .rounding(4.0)
+                            .inner_margin(egui::Margin::same(8.0))
+                            .show(ui, |ui| {
+                                egui::ScrollArea::vertical()
+                                    .max_height(300.0)
+                                    .show(ui, |ui| {
+                                        ui.label(egui::RichText::new(&display_text).monospace().small());
+                                    });
+                            });
+                    });
                 }
             });
 

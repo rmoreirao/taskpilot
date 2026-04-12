@@ -39,7 +39,11 @@ pub struct TaskRun {
     pub task_name: String,
     pub status: RunStatus,
     pub exit_code: Option<i32>,
+    /// Legacy fields kept for backward compatibility with old JSON run files.
+    /// New runs do NOT populate these — output lives in output.log alongside run.json.
+    #[serde(default)]
     pub stdout: String,
+    #[serde(default)]
     pub stderr: String,
     pub started_at: DateTime<Local>,
     pub finished_at: Option<DateTime<Local>>,
@@ -52,6 +56,9 @@ pub struct TaskRun {
     /// Task configuration snapshot captured at execution time.
     #[serde(default)]
     pub config: Option<TaskRunConfig>,
+    /// Path to the output.log file for this run (not serialized — set at load time).
+    #[serde(skip)]
+    pub output_log_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -128,27 +135,40 @@ impl Workspace {
         self.runs_dir().join(sanitize_filename(task_name))
     }
 
-    pub fn live_log_path(&self, task_name: &str) -> PathBuf {
-        self.task_runs_dir(task_name).join("live.log")
+    /// Directory for a specific run, e.g. `.taskpilot/runs/<task>/2026-04-09T193656/`
+    pub fn run_dir(&self, task_name: &str, started_at: &DateTime<Local>) -> PathBuf {
+        let folder = started_at.format("%Y-%m-%dT%H%M%S").to_string();
+        self.task_runs_dir(task_name).join(folder)
     }
 
-    pub fn read_live_log(&self, task_name: &str) -> String {
-        let path = self.live_log_path(task_name);
+    /// Path to output.log inside a run directory.
+    pub fn output_log_path(&self, task_name: &str, started_at: &DateTime<Local>) -> PathBuf {
+        self.run_dir(task_name, started_at).join("output.log")
+    }
+
+    /// Read the output log for a running task (for live display).
+    pub fn read_output_log(&self, task_name: &str, started_at: &DateTime<Local>) -> String {
+        let path = self.output_log_path(task_name, started_at);
         std::fs::read_to_string(&path).unwrap_or_default()
     }
 
-    pub fn remove_live_log(&self, task_name: &str) {
-        let path = self.live_log_path(task_name);
-        let _ = std::fs::remove_file(&path);
+    /// Read the tail of the output log (last `max_bytes` bytes), useful for notifications.
+    pub fn read_output_log_tail(&self, task_name: &str, started_at: &DateTime<Local>, max_bytes: usize) -> String {
+        let path = self.output_log_path(task_name, started_at);
+        read_file_tail(&path, max_bytes)
+    }
+
+    /// Read the output log for a run using its stored path (for history display).
+    pub fn read_output_log_from_path(path: &Path) -> String {
+        std::fs::read_to_string(path).unwrap_or_default()
     }
 
     pub fn save_run(&self, run: &TaskRun) -> Result<PathBuf, String> {
-        let dir = self.task_runs_dir(&run.task_name);
+        let dir = self.run_dir(&run.task_name, &run.started_at);
         std::fs::create_dir_all(&dir)
-            .map_err(|e| format!("Failed to create task runs dir: {}", e))?;
+            .map_err(|e| format!("Failed to create run dir: {}", e))?;
 
-        let filename = run.started_at.format("%Y-%m-%dT%H%M%S.json").to_string();
-        let path = dir.join(&filename);
+        let path = dir.join("run.json");
 
         let json = serde_json::to_string_pretty(run)
             .map_err(|e| format!("Failed to serialize run: {}", e))?;
@@ -163,25 +183,46 @@ impl Workspace {
             return Vec::new();
         }
 
-        let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        let entries: Vec<_> = std::fs::read_dir(&dir)
             .ok()
-            .map(|entries| {
-                entries
-                    .filter_map(|e| e.ok())
-                    .map(|e| e.path())
-                    .filter(|p| p.extension().map_or(false, |ext| ext == "json"))
-                    .collect()
-            })
+            .map(|entries| entries.filter_map(|e| e.ok()).collect())
             .unwrap_or_default();
 
-        files.sort_by(|a, b| b.cmp(a)); // newest first
-        files.truncate(limit);
+        // Collect (sort_key, json_path, output_log_path) from both old and new formats
+        let mut run_entries: Vec<(String, PathBuf, Option<PathBuf>)> = Vec::new();
 
-        files
-            .iter()
-            .filter_map(|path| {
-                let content = std::fs::read_to_string(path).ok()?;
-                serde_json::from_str(&content).ok()
+        for entry in entries {
+            let path = entry.path();
+            if path.is_dir() {
+                // New format: subfolder with run.json + output.log
+                let json_path = path.join("run.json");
+                if json_path.exists() {
+                    let sort_key = path.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let output_path = path.join("output.log");
+                    let output = if output_path.exists() { Some(output_path) } else { None };
+                    run_entries.push((sort_key, json_path, output));
+                }
+            } else if path.extension().map_or(false, |ext| ext == "json") {
+                // Old format: flat .json file with embedded stdout/stderr
+                let sort_key = path.file_stem()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                run_entries.push((sort_key, path, None));
+            }
+        }
+
+        run_entries.sort_by(|a, b| b.0.cmp(&a.0)); // newest first
+        run_entries.truncate(limit);
+
+        run_entries
+            .into_iter()
+            .filter_map(|(_, json_path, output_path)| {
+                let content = std::fs::read_to_string(&json_path).ok()?;
+                let mut run: TaskRun = serde_json::from_str(&content).ok()?;
+                run.output_log_path = output_path;
+                Some(run)
             })
             .collect()
     }
@@ -273,4 +314,20 @@ fn sanitize_filename(name: &str) -> String {
     name.chars()
         .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
         .collect()
+}
+
+/// Read the last `max_bytes` bytes from a file as a String.
+fn read_file_tail(path: &Path, max_bytes: usize) -> String {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return String::new(),
+    };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0) as usize;
+    if len > max_bytes {
+        let _ = file.seek(SeekFrom::End(-(max_bytes as i64)));
+    }
+    let mut buf = String::new();
+    let _ = file.read_to_string(&mut buf);
+    buf
 }

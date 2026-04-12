@@ -222,11 +222,20 @@ fn main() {
         let shell = executor::resolve_shell(task.shell, effective_config.general.default_shell);
         let run = executor::execute_task(&task, &workspace, &cancel, shell);
 
-        if !run.stdout.is_empty() {
-            print!("{}", run.stdout);
-        }
-        if !run.stderr.is_empty() {
-            eprint!("{}", run.stderr);
+        // Print output from the output.log file (new format) or legacy embedded fields
+        if let Some(ref log_path) = run.output_log_path {
+            if let Ok(content) = std::fs::read_to_string(log_path) {
+                if !content.is_empty() {
+                    print!("{}", content);
+                }
+            }
+        } else {
+            if !run.stdout.is_empty() {
+                print!("{}", run.stdout);
+            }
+            if !run.stderr.is_empty() {
+                eprint!("{}", run.stderr);
+            }
         }
 
         let exit_code = match run.status {

@@ -2,7 +2,7 @@ use crate::config::{Shell, TaskConfig};
 use crate::logging::LogLevel;
 use crate::workspace::{TaskRun, TaskRunConfig, RunStatus, Workspace};
 use chrono::Local;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -129,13 +129,14 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
         );
     }
 
-    // Ensure the task runs directory exists for the live log
-    let _ = std::fs::create_dir_all(workspace.task_runs_dir(&task.name));
-    let live_log_path = workspace.live_log_path(&task.name);
+    // Create the run directory and output.log path
+    let run_dir = workspace.run_dir(&task.name, &started_at);
+    let _ = std::fs::create_dir_all(&run_dir);
+    let output_log_path = run_dir.join("output.log");
     workspace.log_task(
         LogLevel::Debug,
         "executor",
-        &format!("Task '{}': live log path = \"{}\"", task.name, live_log_path.display()),
+        &format!("Task '{}': output log path = \"{}\"", task.name, output_log_path.display()),
     );
 
     let mut last_run = None;
@@ -155,16 +156,16 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
                 status: RunStatus::Stopped,
                 exit_code: None,
                 stdout: String::new(),
-                stderr: "Task was stopped by user".to_string(),
+                stderr: String::new(),
                 started_at,
                 finished_at: Some(Local::now()),
                 duration_ms: Some(elapsed.as_millis() as u64),
                 attempt: Some(attempt),
                 total_attempts: Some(total_attempts),
                 config: Some(run_config),
+                output_log_path: Some(output_log_path),
             };
             let _ = workspace.save_run(&run);
-            workspace.remove_live_log(&task.name);
             return run;
         }
 
@@ -174,16 +175,17 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
                 "executor",
                 &format!("Task '{}': retry attempt {}/{} (attempt {}/{})", task.name, attempt, retries, attempt + 1, total_attempts),
             );
+            // Append a separator to the output log between attempts
+            if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&output_log_path) {
+                let _ = writeln!(f, "\n--- Retry attempt {}/{} ---\n", attempt + 1, total_attempts);
+            }
         }
-
-        // Clear live log at start of each attempt
-        let _ = std::fs::write(&live_log_path, b"");
 
         let result = run_command(
             &task.command,
             task.working_dir.as_deref(),
             timeout,
-            Some(&live_log_path),
+            &output_log_path,
             workspace,
             &task.name,
             cancel,
@@ -196,14 +198,15 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
             task_name: task.name.clone(),
             status: result.status,
             exit_code: result.exit_code,
-            stdout: result.stdout,
-            stderr: result.stderr,
+            stdout: String::new(),
+            stderr: String::new(),
             started_at,
             finished_at: Some(finished_at),
             duration_ms: Some(elapsed.as_millis() as u64),
             attempt: Some(attempt),
             total_attempts: Some(total_attempts),
             config: Some(run_config.clone()),
+            output_log_path: Some(output_log_path.clone()),
         };
 
         // Stop retrying on success, cancellation, or final attempt
@@ -248,7 +251,6 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
                 ),
             );
             let _ = workspace.save_run(&run);
-            workspace.remove_live_log(&task.name);
             last_run = Some(run);
             break;
         }
@@ -280,37 +282,31 @@ pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelTok
 struct CommandResult {
     status: RunStatus,
     exit_code: Option<i32>,
-    stdout: String,
-    stderr: String,
 }
 
 /// Shared writer for the live log file, used by stdout/stderr reader threads.
 type LiveLogWriter = Arc<Mutex<std::io::BufWriter<std::fs::File>>>;
 
-/// Create a live log writer for the given path. Returns None if the file can't be opened.
+/// Create a log writer for the given path (append mode). Returns None if the file can't be opened.
 fn open_live_log(path: &Path) -> Option<LiveLogWriter> {
     std::fs::OpenOptions::new()
         .create(true)
-        .write(true)
-        .truncate(true)
+        .append(true)
         .open(path)
         .ok()
         .map(|f| Arc::new(Mutex::new(std::io::BufWriter::new(f))))
 }
 
-/// Spawn a thread that reads lines from `reader` and appends them to both an in-memory
-/// buffer and the live log file (if provided). Returns a join handle; the buffer is
-/// collected via the Arc once the thread finishes.
-fn spawn_stream_reader<R: Read + Send + 'static>(
+/// Spawn a thread that reads lines from `reader` and appends them to the log file.
+/// No in-memory buffering — output goes directly to disk to avoid OOM on chatty tasks.
+fn spawn_stream_reader<R: std::io::Read + Send + 'static>(
     reader: R,
     prefix: &str,
     log_writer: Option<LiveLogWriter>,
-) -> (std::thread::JoinHandle<()>, Arc<Mutex<Vec<u8>>>) {
-    let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
-    let buf_clone = Arc::clone(&buf);
+) -> std::thread::JoinHandle<()> {
     let prefix = prefix.to_string();
 
-    let handle = std::thread::spawn(move || {
+    std::thread::spawn(move || {
         let mut br = BufReader::new(reader);
         let mut line = String::new();
         loop {
@@ -318,11 +314,6 @@ fn spawn_stream_reader<R: Read + Send + 'static>(
             match br.read_line(&mut line) {
                 Ok(0) => break, // EOF
                 Ok(_) => {
-                    // Append to in-memory buffer
-                    if let Ok(mut b) = buf_clone.lock() {
-                        b.extend_from_slice(line.as_bytes());
-                    }
-                    // Append to live log file
                     if let Some(ref writer) = log_writer {
                         if let Ok(mut w) = writer.lock() {
                             let _ = write!(w, "[{}] {}", prefix, line);
@@ -333,16 +324,14 @@ fn spawn_stream_reader<R: Read + Send + 'static>(
                 Err(_) => break,
             }
         }
-    });
-
-    (handle, buf)
+    })
 }
 
 fn run_command(
     command: &str,
     working_dir: Option<&str>,
     timeout: Option<Duration>,
-    live_log_path: Option<&Path>,
+    output_log_path: &Path,
     workspace: &Workspace,
     task_name: &str,
     cancel: &CancelToken,
@@ -360,7 +349,6 @@ fn run_command(
     #[cfg(windows)]
     {
         if spec.uses_raw_arg {
-            // cmd.exe needs raw_arg to preserve its own quote handling
             for arg in &spec.pre_args {
                 cmd.raw_arg(arg);
             }
@@ -403,11 +391,13 @@ fn run_command(
                 "executor",
                 &format!("Task '{}': failed to spawn process: {}", task_name, e),
             );
+            // Write the error to output.log so it's visible in the UI
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(output_log_path) {
+                let _ = writeln!(f, "[stderr] Failed to spawn '{}': {}", spec.program, e);
+            }
             return CommandResult {
                 status: RunStatus::Failed,
                 exit_code: None,
-                stdout: String::new(),
-                stderr: format!("Failed to spawn '{}': {}", spec.program, e),
             };
         }
     };
@@ -418,10 +408,10 @@ fn run_command(
         &format!("Task '{}': process spawned (PID {})", task_name, child.id()),
     );
 
-    // Open live log writer (shared between stdout/stderr reader threads)
-    let log_writer = live_log_path.and_then(open_live_log);
+    // Open output log writer (shared between stdout/stderr reader threads)
+    let log_writer = open_live_log(output_log_path);
 
-    // Take stdout/stderr handles and spawn streaming reader threads
+    // Take stdout/stderr handles and spawn streaming reader threads (disk-only, no RAM buffer)
     let stdout_handle = child.stdout.take().map(|s| {
         spawn_stream_reader(s, "stdout", log_writer.clone())
     });
@@ -433,20 +423,13 @@ fn run_command(
     let pid = child.id();
     let exit_result = wait_with_cancel(&mut child, timeout, cancel, pid);
 
-    // Join the reader threads to collect output
-    let stdout_str = stdout_handle
-        .and_then(|(h, buf)| {
-            let _ = h.join();
-            buf.lock().ok().map(|b| String::from_utf8_lossy(&b).to_string())
-        })
-        .unwrap_or_default();
-
-    let stderr_str = stderr_handle
-        .and_then(|(h, buf)| {
-            let _ = h.join();
-            buf.lock().ok().map(|b| String::from_utf8_lossy(&b).to_string())
-        })
-        .unwrap_or_default();
+    // Join the reader threads to ensure all output is flushed to disk
+    if let Some(h) = stdout_handle {
+        let _ = h.join();
+    }
+    if let Some(h) = stderr_handle {
+        let _ = h.join();
+    }
 
     match exit_result {
         Ok(status) => {
@@ -459,8 +442,6 @@ fn run_command(
             CommandResult {
                 status: run_status,
                 exit_code,
-                stdout: stdout_str,
-                stderr: stderr_str,
             }
         }
         Err(WaitError::Cancelled) => {
@@ -472,12 +453,6 @@ fn run_command(
             CommandResult {
                 status: RunStatus::Stopped,
                 exit_code: None,
-                stdout: stdout_str,
-                stderr: if stderr_str.is_empty() {
-                    "Task was stopped by user".to_string()
-                } else {
-                    format!("{}\nTask was stopped by user", stderr_str)
-                },
             }
         }
         Err(WaitError::Timeout) => {
@@ -489,20 +464,12 @@ fn run_command(
             CommandResult {
                 status: RunStatus::Timeout,
                 exit_code: None,
-                stdout: stdout_str,
-                stderr: if stderr_str.is_empty() {
-                    format!("Process timed out after {:?}", timeout.unwrap_or_default())
-                } else {
-                    format!("{}\nProcess timed out after {:?}", stderr_str, timeout.unwrap_or_default())
-                },
             }
         }
         Err(WaitError::Other) => {
             CommandResult {
                 status: RunStatus::Failed,
                 exit_code: None,
-                stdout: stdout_str,
-                stderr: stderr_str,
             }
         }
     }

@@ -396,7 +396,8 @@ fn spawn_task(
             && notify_cfg.enabled
             && task.notify_on_failure
         {
-            send_failure_notification(&task.name, &run.stderr);
+            let error_tail = ws.read_output_log_tail(&task.name, &run.started_at, 500);
+            send_failure_notification(&task.name, &error_tail);
         }
 
         // Remove from running map before sending event to avoid race

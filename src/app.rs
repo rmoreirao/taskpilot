@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Local};
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum View {
     Tasks,
@@ -20,12 +22,18 @@ pub enum View {
 }
 
 #[derive(Clone)]
+pub struct RunningTaskInfo {
+    pub since: Instant,
+    pub started_at: DateTime<Local>,
+}
+
+#[derive(Clone)]
 pub struct TaskStatus {
     pub name: String,
     pub command: String,
     pub cron: String,
     pub last_run: Option<TaskRun>,
-    pub next_run: Option<chrono::DateTime<chrono::Local>>,
+    pub next_run: Option<DateTime<Local>>,
     pub is_running: bool,
     pub running_since: Option<Instant>,
 }
@@ -56,7 +64,7 @@ pub struct TaskPilotApp {
     scheduler: SchedulerHandle,
     pub(crate) current_view: View,
     pub(crate) task_statuses: Vec<TaskStatus>,
-    pub(crate) running_tasks: HashMap<String, Instant>,
+    pub(crate) running_tasks: HashMap<String, RunningTaskInfo>,
     pub(crate) live_logs: HashMap<String, String>,
     pub(crate) selected_task_runs: Vec<TaskRun>,
     last_refresh: Instant,
@@ -227,7 +235,7 @@ impl TaskPilotApp {
                     last_run,
                     next_run,
                     is_running: self.running_tasks.contains_key(&task.name),
-                    running_since: self.running_tasks.get(&task.name).copied(),
+                    running_since: self.running_tasks.get(&task.name).map(|info| info.since),
                 }
             })
             .collect();
@@ -237,7 +245,10 @@ impl TaskPilotApp {
         while let Ok(evt) = self.scheduler.evt_rx.try_recv() {
             match evt {
                 SchedulerEvent::TaskStarted(name, _trigger) => {
-                    self.running_tasks.insert(name, Instant::now());
+                    self.running_tasks.insert(name, RunningTaskInfo {
+                        since: Instant::now(),
+                        started_at: Local::now(),
+                    });
                 }
                 SchedulerEvent::TaskFinished(name, status, trigger) => {
                     self.running_tasks.remove(&name);
@@ -608,8 +619,8 @@ impl eframe::App for TaskPilotApp {
         // Refresh live logs on a separate configurable timer
         let log_interval = Duration::from_secs_f32(self.log_refresh_interval_secs);
         if self.force_log_refresh || self.last_log_refresh.elapsed() >= log_interval {
-            for name in self.running_tasks.keys() {
-                let content = self.workspace.read_live_log(name);
+            for (name, info) in &self.running_tasks {
+                let content = self.workspace.read_output_log(name, &info.started_at);
                 if !content.is_empty() {
                     self.live_logs.insert(name.clone(), content);
                 }
