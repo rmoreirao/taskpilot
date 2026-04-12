@@ -67,6 +67,15 @@ pub struct TaskPilotApp {
     pub(crate) running_tasks: HashMap<String, RunningTaskInfo>,
     pub(crate) live_logs: HashMap<String, String>,
     pub(crate) selected_task_runs: Vec<TaskRun>,
+    /// Total number of runs matching the current status filter (for pagination).
+    pub(crate) selected_task_runs_total: usize,
+    /// All run metadata (lightweight, no output) for computing summary stats.
+    pub(crate) selected_task_all_runs: Vec<TaskRun>,
+    pub(crate) run_page: usize,
+    pub(crate) runs_per_page: usize,
+    pub(crate) run_status_filter: Option<RunStatus>,
+    /// Lazily-loaded output content, keyed by run timestamp string.
+    pub(crate) expanded_run_outputs: HashMap<String, String>,
     last_refresh: Instant,
     pub(crate) notifications: Vec<NotificationItem>,
     pub(crate) search_filter: String,
@@ -132,6 +141,12 @@ impl TaskPilotApp {
             running_tasks: HashMap::new(),
             live_logs: HashMap::new(),
             selected_task_runs: Vec::new(),
+            selected_task_runs_total: 0,
+            selected_task_all_runs: Vec::new(),
+            run_page: 0,
+            runs_per_page: 15,
+            run_status_filter: None,
+            expanded_run_outputs: HashMap::new(),
             last_refresh: Instant::now(),
             notifications: Vec::new(),
             search_filter: String::new(),
@@ -214,6 +229,43 @@ impl TaskPilotApp {
                 (None, None)
             }
         }
+    }
+
+    /// Load task detail runs (metadata only) and paginate for the current view.
+    pub(crate) fn load_task_detail_runs(&mut self, task_name: &str) {
+        self.selected_task_all_runs = self.workspace.load_runs_metadata(task_name);
+        let (page_runs, total) = Self::paginate_runs(
+            &self.selected_task_all_runs,
+            self.run_status_filter.as_ref(),
+            self.run_page,
+            self.runs_per_page,
+        );
+        self.selected_task_runs = page_runs;
+        self.selected_task_runs_total = total;
+        self.expanded_run_outputs.clear();
+    }
+
+    /// Filter and paginate a list of runs. Returns (page_items, total_matching).
+    pub(crate) fn paginate_runs(
+        all_runs: &[TaskRun],
+        status_filter: Option<&RunStatus>,
+        page: usize,
+        per_page: usize,
+    ) -> (Vec<TaskRun>, usize) {
+        let filtered: Vec<&TaskRun> = if let Some(status) = status_filter {
+            all_runs.iter().filter(|r| &r.status == status).collect()
+        } else {
+            all_runs.iter().collect()
+        };
+        let total = filtered.len();
+        let start = page * per_page;
+        let page_runs: Vec<TaskRun> = filtered
+            .into_iter()
+            .skip(start)
+            .take(per_page)
+            .cloned()
+            .collect();
+        (page_runs, total)
     }
 
     pub(crate) fn refresh_task_statuses(&mut self) {
@@ -611,7 +663,15 @@ impl eframe::App for TaskPilotApp {
             self.refresh_task_statuses();
 
             if let View::TaskDetail(ref name) = self.current_view {
-                self.selected_task_runs = self.workspace.load_runs(name, 50);
+                self.selected_task_all_runs = self.workspace.load_runs_metadata(name);
+                let (page_runs, total) = Self::paginate_runs(
+                    &self.selected_task_all_runs,
+                    self.run_status_filter.as_ref(),
+                    self.run_page,
+                    self.runs_per_page,
+                );
+                self.selected_task_runs = page_runs;
+                self.selected_task_runs_total = total;
             }
             self.last_refresh = Instant::now();
         }

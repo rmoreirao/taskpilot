@@ -227,6 +227,57 @@ impl Workspace {
             .collect()
     }
 
+    /// Load all run metadata (without stdout/stderr content) for a task, newest first.
+    /// Output log paths are still set so content can be loaded on demand.
+    pub fn load_runs_metadata(&self, task_name: &str) -> Vec<TaskRun> {
+        let dir = self.task_runs_dir(task_name);
+        if !dir.exists() {
+            return Vec::new();
+        }
+
+        let entries: Vec<_> = std::fs::read_dir(&dir)
+            .ok()
+            .map(|entries| entries.filter_map(|e| e.ok()).collect())
+            .unwrap_or_default();
+
+        let mut run_entries: Vec<(String, PathBuf, Option<PathBuf>)> = Vec::new();
+
+        for entry in entries {
+            let path = entry.path();
+            if path.is_dir() {
+                let json_path = path.join("run.json");
+                if json_path.exists() {
+                    let sort_key = path.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let output_path = path.join("output.log");
+                    let output = if output_path.exists() { Some(output_path) } else { None };
+                    run_entries.push((sort_key, json_path, output));
+                }
+            } else if path.extension().map_or(false, |ext| ext == "json") {
+                let sort_key = path.file_stem()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                run_entries.push((sort_key, path, None));
+            }
+        }
+
+        run_entries.sort_by(|a, b| b.0.cmp(&a.0)); // newest first
+
+        run_entries
+            .into_iter()
+            .filter_map(|(_, json_path, output_path)| {
+                let content = std::fs::read_to_string(&json_path).ok()?;
+                let mut run: TaskRun = serde_json::from_str(&content).ok()?;
+                run.output_log_path = output_path;
+                // Clear embedded output to save memory (legacy format)
+                run.stdout = String::new();
+                run.stderr = String::new();
+                Some(run)
+            })
+            .collect()
+    }
+
     pub fn get_latest_run(&self, task_name: &str) -> Option<TaskRun> {
         self.load_runs(task_name, 1).into_iter().next()
     }

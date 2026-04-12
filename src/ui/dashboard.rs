@@ -204,7 +204,10 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
         app.stop_task(&name);
     }
     if let Some(name) = view_task {
-        app.selected_task_runs = app.workspace.load_runs(&name, 50);
+        app.run_page = 0;
+        app.run_status_filter = None;
+        app.expanded_run_outputs.clear();
+        app.load_task_detail_runs(&name);
         app.current_view = View::TaskDetail(name);
     }
 }
