@@ -91,7 +91,14 @@ fn main() -> eframe::Result<()> {
 
     // Load and merge tasks from all sources
     let (merged_tasks, source_metadata) =
-        task_sources::load_all(&config.tasks, &config_path, &source_dirs, &source_files, Some(&workspace)).unwrap_or_else(|e| {
+        task_sources::load_all(
+            &config.tasks,
+            &config_path,
+            &source_dirs,
+            &source_files,
+            config.general.default_timezone.as_deref(),
+            Some(&workspace),
+        ).unwrap_or_else(|e| {
             eprintln!("Task source error: {}. Using local tasks only.", e);
             let mut map = std::collections::HashMap::new();
             for task in &config.tasks {

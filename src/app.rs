@@ -2,6 +2,7 @@ use crate::config::AppConfig;
 use crate::scheduler::{self, SchedulerCommand, SchedulerEvent, SchedulerHandle, start_scheduler};
 use crate::single_instance::SingleInstanceGuard;
 use crate::task_sources::{self, TaskSourceInfo};
+use crate::timezone;
 use crate::tray::{TrayEvent, TrayManager};
 use crate::updater::{self, UpdateState};
 use crate::workspace::{TaskRun, RunStatus, Workspace};
@@ -32,6 +33,7 @@ pub struct TaskStatus {
     pub name: String,
     pub command: String,
     pub cron: String,
+    pub schedule_timezone: Option<String>,
     pub last_run: Option<TaskRun>,
     pub next_run: Option<DateTime<Local>>,
     pub is_running: bool,
@@ -288,6 +290,13 @@ impl TaskPilotApp {
                     name: task.name.clone(),
                     command: task.command.clone(),
                     cron: task.cron.clone().unwrap_or_default(),
+                    schedule_timezone: task.cron.as_ref().and_then(|_| {
+                        timezone::effective_timezone_label(
+                            task,
+                            self.config.general.default_timezone.as_deref(),
+                        )
+                        .ok()
+                    }),
                     last_run,
                     next_run,
                     is_running: self.running_tasks.contains_key(&task.name),
@@ -421,6 +430,7 @@ impl TaskPilotApp {
                     &self.workspace.config_path(),
                     &source_dirs,
                     &source_files,
+                    new_config.general.default_timezone.as_deref(),
                     Some(&self.workspace),
                 ) {
                     Ok((merged_tasks, source_metadata)) => {

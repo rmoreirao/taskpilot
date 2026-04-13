@@ -3,11 +3,16 @@ log_level = "info"
 max_log_retention_days = 30
 start_with_windows = true
 
+# Optional global default timezone for cron schedules.
+# Uses IANA timezone names, for example:
+# default_timezone = "America/New_York"
+# default_timezone = "America/Sao_Paulo"
+# If omitted, cron schedules use the machine local timezone.
+
 # External task sources — directories containing .toml task definitions.
 # Each directory is scanned for .toml files that define tasks.
 # Files can use the same [[task]] array format as this config,
 # or a flat single-task format (name, command, cron fields at top level).
-# Cron expressions are evaluated in local system time.
 # task_sources = ["C:\\SharedTasks", "D:\\team-tasks"]
 
 # External task configs — individual .toml task definition files.
@@ -30,6 +35,7 @@ auto_check = true
 name = "example-hello"
 command = "Write-Output 'Hello from TaskPilot!'"
 cron = "*/5 * * * *"
+# timezone = "America/New_York"   # optional per-task override
 timeout = "30s"
 notify_on_failure = true
 
@@ -41,8 +47,14 @@ notify_on_failure = true
 name = "example-date"
 command = "Get-Date -Format 'yyyy-MM-dd'"
 cron = "*/2 * * * *"
+# timezone = "America/Sao_Paulo"  # overrides [general].default_timezone
 timeout = "10s"
 notify_on_failure = true
+
+# Timezone precedence for cron schedules:
+# 1. [[task]].timezone
+# 2. [general].default_timezone
+# 3. machine local timezone
 
 # ── Task triggers (pipelines) ──────────────────────────────────────
 # Chain tasks together: when a task finishes, trigger downstream tasks.

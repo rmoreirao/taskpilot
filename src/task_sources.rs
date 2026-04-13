@@ -1,5 +1,6 @@
 use crate::config::TaskConfig;
 use crate::logging::LogLevel;
+use crate::timezone;
 use crate::workspace::Workspace;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -136,6 +137,7 @@ pub fn load_all(
     config_path: &Path,
     source_dirs: &[PathBuf],
     source_files: &[PathBuf],
+    default_timezone: Option<&str>,
     workspace: Option<&Workspace>,
 ) -> Result<(Vec<TaskConfig>, HashMap<String, TaskSourceInfo>), String> {
     let mut all_tasks: Vec<TaskConfig> = Vec::new();
@@ -273,6 +275,7 @@ pub fn load_all(
 
     // Validate triggers: targets must exist, no self-triggers, no cycles
     validate_triggers(&all_tasks, workspace)?;
+    timezone::validate_tasks_timezones(&all_tasks, default_timezone)?;
 
     Ok((all_tasks, source_map))
 }

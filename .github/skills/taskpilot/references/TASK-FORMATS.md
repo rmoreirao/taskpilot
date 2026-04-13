@@ -12,6 +12,7 @@ A file containing a `[[task]]` array — same syntax as `config.toml`:
 name = "team-backup"
 command = "robocopy C:\\Shared D:\\Backup /MIR"
 cron = "0 3 * * *"
+timezone = "America/New_York"
 timeout = "15m"
 
 [[task]]
@@ -28,6 +29,7 @@ A flat file with the task fields at the top level (no `[[task]]` wrapper):
 name = "nightly-report"
 command = "python generate_report.py"
 cron = "0 23 * * 1-5"
+timezone = "America/Sao_Paulo"
 timeout = "10m"
 working_dir = "C:\\Scripts"
 run_missed = true
@@ -40,6 +42,7 @@ name = "ps-cleanup"
 command = "Remove-Item $env:TEMP\\*.tmp -Force -ErrorAction SilentlyContinue"
 cron = "0 4 * * *"
 shell = "pwsh"
+timezone = "Europe/London"
 timeout = "5m"
 ```
 
@@ -88,6 +91,8 @@ taskpilot.exe --task-dir C:\SharedTasks --task-dir D:\team-tasks
 
 CLI and config sources are merged (duplicates removed by path).
 
+`default_timezone` is only supported in the main `config.toml` under `[general]`. External task files can set per-task `timezone`, but they do not define global defaults.
+
 ### Behavior
 
 - Only `.toml` files in the directory root are scanned (not recursive).
@@ -131,7 +136,7 @@ local tasks only** — external sources are skipped. The app still starts.
 
 ## Cron Expression Reference
 
-TaskPilot uses standard 5-field cron expressions, evaluated in **local system time**:
+TaskPilot uses standard 5-field cron expressions, evaluated in the task's effective timezone:
 
 ```
 ┌───────────── minute (0–59)
@@ -169,3 +174,13 @@ TaskPilot uses standard 5-field cron expressions, evaluated in **local system ti
 
 Internally, TaskPilot converts 5-field expressions to 6-field by prepending `0` for the seconds
 field. You should always write 5-field expressions in your config.
+
+### Timezone precedence
+
+Cron schedules are evaluated using:
+
+1. `timezone` on the task itself
+2. `[general].default_timezone` from the main config
+3. machine local timezone
+
+Use IANA timezone names such as `America/New_York` or `America/Sao_Paulo`.

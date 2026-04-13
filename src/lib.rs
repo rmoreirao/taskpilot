@@ -7,6 +7,7 @@ pub mod renderer;
 pub mod scheduler;
 pub mod single_instance;
 pub mod task_sources;
+pub mod timezone;
 pub mod tray;
 pub mod ui;
 pub mod updater;

@@ -106,6 +106,39 @@ fn list_with_external_task_dir() {
         .stdout(contains("batch-two"));
 }
 
+#[test]
+fn list_shows_effective_timezone() {
+    let config = r#"
+[general]
+log_level = "info"
+default_timezone = "America/New_York"
+
+[notifications]
+enabled = false
+
+[[task]]
+name = "global-tz-task"
+command = "echo hello"
+cron = "0 6 * * *"
+shell = "cmd"
+
+[[task]]
+name = "override-tz-task"
+command = "echo hello"
+cron = "0 6 * * *"
+shell = "cmd"
+timezone = "America/Sao_Paulo"
+"#;
+
+    let ws = TestWorkspace::from_config_str(config);
+    ws.cli_cmd()
+        .arg("--list")
+        .assert()
+        .success()
+        .stdout(contains("0 6 * * * @ America/New_York"))
+        .stdout(contains("0 6 * * * @ America/Sao_Paulo"));
+}
+
 // ─── Test 9: --task-dir + --run external task ───────────────────────────────
 
 #[test]

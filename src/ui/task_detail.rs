@@ -60,6 +60,16 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
                 .show(ui, |ui| {
                     ui.label(egui::RichText::new("Schedule").small().color(MUTED));
                     ui.label(egui::RichText::new(config.cron.as_deref().unwrap_or("trigger-only")).monospace().color(BLUE));
+                    if let Some(cron) = &config.cron {
+                        let timezone_label = crate::timezone::effective_timezone_label(
+                            config,
+                            app.config.general.default_timezone.as_deref(),
+                        )
+                        .unwrap_or_else(|_| "system local time".to_string());
+                        if !cron.is_empty() {
+                            ui.label(egui::RichText::new(format!("@ {}", timezone_label)).small().color(MUTED));
+                        }
+                    }
                 });
 
             egui::Frame::group(ui.style())
@@ -422,6 +432,12 @@ pub fn render(app: &mut TaskPilotApp, ui: &mut egui::Ui, task_name: &str) {
                                 };
                                 field(ui, "Command:", &cfg.command);
                                 field(ui, "Cron:", &cfg.cron);
+                                field(ui, "Timezone:", &cfg.effective_timezone);
+                                field(
+                                    ui,
+                                    "Timezone Override:",
+                                    cfg.timezone.as_deref().unwrap_or("(inherit)"),
+                                );
                                 field(ui, "Shell:", &cfg.shell);
                                 field(ui, "Timeout:", cfg.timeout.as_deref().unwrap_or("none"));
                                 field(ui, "Working Dir:", cfg.working_dir.as_deref().unwrap_or("(default)"));

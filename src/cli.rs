@@ -6,6 +6,7 @@ use taskpilot::config::{AppConfig, TriggerCondition};
 use taskpilot::executor;
 use taskpilot::logging::parse_log_level;
 use taskpilot::task_sources;
+use taskpilot::timezone;
 use taskpilot::updater;
 use taskpilot::workspace::{RunStatus, Workspace};
 
@@ -99,7 +100,14 @@ fn main() {
 
     // Load and merge tasks from all sources
     let (merged_tasks, source_metadata) =
-        task_sources::load_all(&config.tasks, &config_path, &source_dirs, &source_files, Some(&workspace)).unwrap_or_else(|e| {
+        task_sources::load_all(
+            &config.tasks,
+            &config_path,
+            &source_dirs,
+            &source_files,
+            config.general.default_timezone.as_deref(),
+            Some(&workspace),
+        ).unwrap_or_else(|e| {
             eprintln!("Task source error: {}. Using local tasks only.", e);
             let mut map = std::collections::HashMap::new();
             for task in &config.tasks {
@@ -130,7 +138,17 @@ fn main() {
                     }
                 })
                 .unwrap_or_else(|| "unknown".to_string());
-            println!("  {} [{}] -- {}", task.name, origin, task.cron.as_deref().unwrap_or("trigger-only"));
+            let schedule = if let Some(cron) = &task.cron {
+                let timezone_label = timezone::effective_timezone_label(
+                    task,
+                    effective_config.general.default_timezone.as_deref(),
+                )
+                .unwrap_or_else(|_| "system local time".to_string());
+                format!("{} @ {}", cron, timezone_label)
+            } else {
+                "trigger-only".to_string()
+            };
+            println!("  {} [{}] -- {}", task.name, origin, schedule);
         }
         std::process::exit(0);
     }
@@ -240,7 +258,19 @@ fn run_task_with_triggers(
 
     let cancel = executor::new_cancel_token();
     let shell = executor::resolve_shell(task.shell, config.general.default_shell);
-    let run = executor::execute_task(task, workspace, &cancel, shell);
+    let effective_timezone = timezone::effective_timezone_label(
+        task,
+        config.general.default_timezone.as_deref(),
+    )
+    .unwrap_or_else(|_| "system local time".to_string());
+    let run = executor::execute_task_at(
+        task,
+        workspace,
+        &cancel,
+        shell,
+        effective_timezone,
+        chrono::Local::now(),
+    );
 
     // Print output from the output.log file (new format) or legacy embedded fields
     if let Some(ref log_path) = run.output_log_path {

@@ -29,6 +29,7 @@ If the file doesn't exist on first launch, a starter config is created automatic
 [general]
 log_level = "info"
 start_with_windows = false
+default_timezone = "America/New_York"
 
 [notifications]
 enabled = true
@@ -115,7 +116,7 @@ TaskPilot stores all runtime data in `.taskpilot/` next to the executable:
 ```
 .taskpilot/
 ├── config.toml          # Main configuration file
-├── state.json           # Scheduler state (last/next run times, local time)
+├── state.json           # Scheduler state (last/next run times, displayed in local time)
 ├── update-state.json    # Auto-update state (last check, available version)
 ├── runs/                # Task run history
 │   └── <task-name>/     # One directory per task
@@ -128,7 +129,7 @@ TaskPilot stores all runtime data in `.taskpilot/` next to the executable:
 
 | Section | Purpose |
 |---|---|
-| `[general]` | App-level settings: log level, retention, auto-start, external task sources |
+| `[general]` | App-level settings: log level, retention, auto-start, external task sources, default timezone |
 | `[notifications]` | Desktop notification preferences |
 | `[updates]` | Auto-update preferences (check frequency, enable/disable) |
 | `[[task]]` | Repeatable — one entry per scheduled task |
@@ -143,10 +144,34 @@ Each `[[task]]` entry requires `name` and `command`. The `cron` field is require
 [[task]]
 name = "health-check"          # Unique identifier
 command = "curl http://localhost:8080/health"   # Executed via cmd /C (default)
-cron = "*/5 * * * *"           # Standard 5-field cron expression (local time)
+cron = "*/5 * * * *"           # Standard 5-field cron expression
 ```
 
-Optional fields: `timeout` (e.g. `"30s"`, `"5m"`, `"1h"`), `working_dir`, `notify_on_failure`, `retries`, `run_missed` (default: `true` — catch up overdue tasks on startup/resume; set `false` to skip), `shell` (override: `"cmd"`, `"powershell"`, `"pwsh"`, `"sh"`, `"bash"`), `triggers` (downstream task pipeline).
+Optional fields: `timeout` (e.g. `"30s"`, `"5m"`, `"1h"`), `working_dir`, `notify_on_failure`, `retries`, `run_missed` (default: `true` — catch up overdue tasks on startup/resume; set `false` to skip), `shell` (override: `"cmd"`, `"powershell"`, `"pwsh"`, `"sh"`, `"bash"`), `timezone` (IANA name like `"America/Sao_Paulo"`), `triggers` (downstream task pipeline).
+
+### Timezone scheduling
+
+TaskPilot evaluates cron expressions using:
+
+1. `[[task]].timezone`
+2. `[general].default_timezone`
+3. machine local timezone
+
+```toml
+[general]
+default_timezone = "America/New_York"
+
+[[task]]
+name = "nyc-report"
+command = "echo report"
+cron = "0 6 * * *"                 # 6:00 AM in America/New_York
+
+[[task]]
+name = "brasil-report"
+command = "echo report"
+cron = "0 6 * * *"                 # 6:00 AM in America/Sao_Paulo
+timezone = "America/Sao_Paulo"
+```
 
 #### Shell override
 

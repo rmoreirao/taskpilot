@@ -86,10 +86,26 @@ pub fn parse_duration(s: &str) -> Option<Duration> {
 }
 
 pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelToken, shell: Shell) -> TaskRun {
-    execute_task_at(task, workspace, cancel, shell, Local::now())
+    execute_task_at(
+        task,
+        workspace,
+        cancel,
+        shell,
+        task.timezone
+            .clone()
+            .unwrap_or_else(|| "system local time".to_string()),
+        Local::now(),
+    )
 }
 
-pub fn execute_task_at(task: &TaskConfig, workspace: &Workspace, cancel: &CancelToken, shell: Shell, started_at: DateTime<Local>) -> TaskRun {
+pub fn execute_task_at(
+    task: &TaskConfig,
+    workspace: &Workspace,
+    cancel: &CancelToken,
+    shell: Shell,
+    effective_timezone: String,
+    started_at: DateTime<Local>,
+) -> TaskRun {
     let start_instant = Instant::now();
     let timeout = task.timeout.as_ref().and_then(|t| parse_duration(t));
     let retries = task.retries.unwrap_or(0);
@@ -97,6 +113,8 @@ pub fn execute_task_at(task: &TaskConfig, workspace: &Workspace, cancel: &Cancel
     let run_config = TaskRunConfig {
         command: task.command.clone(),
         cron: task.cron.clone().unwrap_or_default(),
+        timezone: task.timezone.clone(),
+        effective_timezone: effective_timezone.clone(),
         timeout: task.timeout.clone(),
         working_dir: task.working_dir.clone(),
         notify_on_failure: task.notify_on_failure,
@@ -114,9 +132,10 @@ pub fn execute_task_at(task: &TaskConfig, workspace: &Workspace, cancel: &Cancel
         LogLevel::Debug,
         "executor",
         &format!(
-            "Task '{}' config: cron=\"{}\", timeout={}, working_dir={}, retries={}, notify_on_failure={}, shell={}",
+            "Task '{}' config: cron=\"{}\", timezone={}, timeout={}, working_dir={}, retries={}, notify_on_failure={}, shell={}",
             task.name,
             task.cron.as_deref().unwrap_or("none"),
+            effective_timezone,
             task.timeout.as_deref().unwrap_or("none"),
             task.working_dir.as_deref().unwrap_or("(default)"),
             retries,

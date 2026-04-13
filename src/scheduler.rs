@@ -1,8 +1,9 @@
 use crate::config::{AppConfig, TriggerCondition};
 use crate::executor::{execute_task_at, new_cancel_token, resolve_shell, CancelToken};
 use crate::logging::LogLevel;
+use crate::timezone;
 use crate::workspace::{TaskScheduleState, RunStatus, SchedulerState, Workspace};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
 use cron::Schedule;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -84,6 +85,23 @@ fn parse_cron(expr: &str) -> Option<Schedule> {
     Schedule::from_str(&full_expr).ok()
 }
 
+fn compute_next_run(
+    task: &crate::config::TaskConfig,
+    default_timezone: Option<&str>,
+    after: DateTime<Utc>,
+) -> Option<(DateTime<Local>, Option<String>)> {
+    let cron_str = task.cron.as_ref()?;
+    let schedule = parse_cron(cron_str)?;
+    let timezone = timezone::resolve_task_timezone(task, default_timezone).ok()?;
+    let next_run = timezone::next_run_local(&schedule, timezone, after)?;
+    Some((next_run, timezone.key()))
+}
+
+fn effective_timezone_label(task: &crate::config::TaskConfig, config: &AppConfig) -> String {
+    timezone::effective_timezone_label(task, config.general.default_timezone.as_deref())
+        .unwrap_or_else(|_| "system local time".to_string())
+}
+
 fn scheduler_loop(
     mut config: AppConfig,
     workspace: Arc<Workspace>,
@@ -96,48 +114,55 @@ fn scheduler_loop(
 
     // Initialize / reconcile state for all configured tasks
     for task in &config.tasks {
-        let cron_str = match &task.cron {
+        let cron_str = match task.cron.as_deref() {
             Some(c) => c,
             None => continue, // trigger-only task — no schedule
         };
-        if let Some(schedule) = parse_cron(cron_str) {
+        if let Some((next_run, timezone_key)) =
+            compute_next_run(task, config.general.default_timezone.as_deref(), Utc::now())
+        {
             if let Some(existing) = state.tasks.get_mut(&task.name) {
                 // Check if cron expression changed since last persist
-                let cron_changed = existing.cron_expr.as_deref() != Some(cron_str.as_str());
-                if cron_changed {
+                let cron_changed = existing.cron_expr.as_deref() != Some(cron_str);
+                let timezone_changed = existing.effective_timezone != timezone_key;
+                if cron_changed || timezone_changed {
                     workspace.log_task(
                         LogLevel::Info,
                         "scheduler",
                         &format!(
-                            "Task '{}': cron changed from '{}' to '{}' — recomputing next_run",
+                            "Task '{}': schedule changed (cron '{}' -> '{}', timezone '{}' -> '{}') — recomputing next_run",
                             task.name,
                             existing.cron_expr.as_deref().unwrap_or("unknown"),
-                            cron_str
+                            cron_str,
+                            existing.effective_timezone.as_deref().unwrap_or("system local time"),
+                            effective_timezone_label(task, &config),
                         ),
                     );
-                    existing.next_run = schedule.upcoming(Local).next();
-                    existing.cron_expr = Some(cron_str.clone());
+                    existing.next_run = Some(next_run);
+                    existing.cron_expr = Some(cron_str.to_string());
+                    existing.effective_timezone = timezone_key;
                 }
             } else {
                 // New task — initialize state
-                let next = schedule.upcoming(Local).next();
                 workspace.log_task(
                     LogLevel::Debug,
                     "scheduler",
                     &format!(
-                        "Task '{}': cron '{}' → next run at {}",
+                        "Task '{}': cron '{}' @ {} → next run at {}",
                         task.name,
                         cron_str,
-                        next.map_or("none".to_string(), |t| t.to_rfc3339())
+                        effective_timezone_label(task, &config),
+                        next_run.to_rfc3339()
                     ),
                 );
                 state.tasks.insert(
                     task.name.clone(),
                     TaskScheduleState {
                         last_run: None,
-                        next_run: next,
+                        next_run: Some(next_run),
                         last_status: None,
-                        cron_expr: Some(cron_str.clone()),
+                        cron_expr: Some(cron_str.to_string()),
+                        effective_timezone: timezone_key,
                     },
                 );
             }
@@ -197,11 +222,13 @@ fn scheduler_loop(
                     );
                     config = new_config;
                     for task in &config.tasks {
-                        let cron_str = match &task.cron {
+                        let cron_str = match task.cron.as_deref() {
                             Some(c) => c,
                             None => continue,
                         };
-                        if let Some(schedule) = parse_cron(cron_str) {
+                        if let Some((next_run, timezone_key)) =
+                            compute_next_run(task, config.general.default_timezone.as_deref(), Utc::now())
+                        {
                             let entry =
                                 state
                                     .tasks
@@ -211,23 +238,25 @@ fn scheduler_loop(
                                         next_run: None,
                                         last_status: None,
                                         cron_expr: None,
+                                        effective_timezone: None,
                                     });
                             // Only reset next_run if cron expression changed
-                            let cron_changed = entry.cron_expr.as_deref() != Some(cron_str.as_str());
-                            if cron_changed || entry.next_run.is_none() {
-                                entry.next_run = schedule.upcoming(Local).next();
-                                entry.cron_expr = Some(cron_str.clone());
+                            let cron_changed = entry.cron_expr.as_deref() != Some(cron_str);
+                            let timezone_changed = entry.effective_timezone != timezone_key;
+                            if cron_changed || timezone_changed || entry.next_run.is_none() {
+                                entry.next_run = Some(next_run);
+                                entry.cron_expr = Some(cron_str.to_string());
+                                entry.effective_timezone = timezone_key;
                             }
                             workspace.log_task(
                                 LogLevel::Debug,
                                 "scheduler",
                                 &format!(
-                                    "Task '{}': cron '{}' → next run at {}",
+                                    "Task '{}': cron '{}' @ {} → next run at {}",
                                     task.name,
                                     cron_str,
-                                    entry
-                                        .next_run
-                                        .map_or("none".to_string(), |t| t.to_rfc3339())
+                                    effective_timezone_label(task, &config),
+                                    entry.next_run.map_or("none".to_string(), |t| t.to_rfc3339())
                                 ),
                             );
                         }
@@ -331,12 +360,13 @@ fn scheduler_loop(
         // Handle skipped tasks: advance next_run and notify
         for (name, scheduled_for) in tasks_to_skip {
             if let Some(task_cfg) = config.tasks.iter().find(|t| t.name == name) {
-                if let Some(cron_str) = &task_cfg.cron {
-                    if let Some(schedule) = parse_cron(cron_str) {
-                        if let Some(task_state) = state.tasks.get_mut(&name) {
-                            task_state.next_run = schedule.upcoming(Local).next();
-                            task_state.cron_expr = Some(cron_str.clone());
-                        }
+                if let Some((next_run, timezone_key)) =
+                    compute_next_run(task_cfg, config.general.default_timezone.as_deref(), Utc::now())
+                {
+                    if let Some(task_state) = state.tasks.get_mut(&name) {
+                        task_state.next_run = Some(next_run);
+                        task_state.cron_expr = task_cfg.cron.clone();
+                        task_state.effective_timezone = timezone_key;
                     }
                 }
             }
@@ -397,17 +427,23 @@ fn spawn_task(
     // Update state before execution
     if let Some(task_state) = state.tasks.get_mut(name) {
         task_state.last_run = Some(Local::now());
-        if let Some(cron_str) = &task.cron {
-            if let Some(schedule) = parse_cron(cron_str) {
-                task_state.next_run = schedule.upcoming(Local).next();
-                task_state.cron_expr = Some(cron_str.clone());
-                workspace.log_task(
-                    LogLevel::Debug,
-                    "scheduler",
-                    &format!("Task '{}': next run at {}", name,
-                        task_state.next_run.map_or("none".to_string(), |t| t.to_rfc3339())),
-                );
-            }
+        if let Some((next_run, timezone_key)) =
+            compute_next_run(&task, config.general.default_timezone.as_deref(), Utc::now())
+        {
+            task_state.next_run = Some(next_run);
+            task_state.cron_expr = task.cron.clone();
+            task_state.effective_timezone = timezone_key;
+            workspace.log_task(
+                LogLevel::Debug,
+                "scheduler",
+                &format!(
+                    "Task '{}': next run at {}",
+                    name,
+                    task_state
+                        .next_run
+                        .map_or("none".to_string(), |t| t.to_rfc3339())
+                ),
+            );
         }
     }
     let _ = workspace.save_state(state);
@@ -421,12 +457,13 @@ fn spawn_task(
     let running_set = Arc::clone(running);
     let task_name = name.to_string();
     let notify_cfg = config.notifications.clone();
-    let task_cron = task.cron.clone();
     let task_triggers = task.triggers.clone();
     let shell = resolve_shell(task.shell, config.general.default_shell);
+    let default_timezone = config.general.default_timezone.clone();
+    let effective_timezone = effective_timezone_label(&task, config);
 
     thread::spawn(move || {
-        let run = execute_task_at(&task, &ws, &cancel, shell, started_at);
+        let run = execute_task_at(&task, &ws, &cancel, shell, effective_timezone, started_at);
         let status = run.status.clone();
 
         // Persist last_status and re-advance next_run to first future occurrence
@@ -435,13 +472,13 @@ fn spawn_task(
             if let Some(task_state) = updated_state.tasks.get_mut(&task_name) {
                 task_state.last_status = Some(status.clone());
                 // Re-advance next_run to ensure it's always in the future
-                if let Some(cron_str) = &task_cron {
-                    if let Some(schedule) = parse_cron(cron_str) {
-                        let next = schedule.upcoming(Local).next();
-                        if task_state.next_run.map_or(true, |nr| nr <= Local::now()) {
-                            task_state.next_run = next;
-                        }
+                if let Some((next_run, timezone_key)) =
+                    compute_next_run(&task, default_timezone.as_deref(), Utc::now())
+                {
+                    if task_state.next_run.map_or(true, |nr| nr <= Local::now()) {
+                        task_state.next_run = Some(next_run);
                     }
+                    task_state.effective_timezone = timezone_key;
                 }
             }
             let _ = ws.save_state(&updated_state);

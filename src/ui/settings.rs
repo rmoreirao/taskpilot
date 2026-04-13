@@ -153,6 +153,13 @@ pub fn render_settings(app: &mut TaskPilotApp, ui: &mut egui::Ui) {
             .monospace()
             .small(),
     );
+    ui.label(
+        egui::RichText::new(
+            "Timezone scheduling is configured in config.toml via [general].default_timezone and [[task]].timezone using IANA names like America/Sao_Paulo."
+        )
+        .small()
+        .color(MUTED),
+    );
     ui.add_space(8.0);
 
     let mut should_reload = false;

@@ -26,7 +26,7 @@ TaskPilot is a simple, no-fuss task scheduler for Windows. If you have scripts, 
 
 ## Features
 
-- **Cron scheduling** — Use familiar `*/5 * * * *` syntax to define when tasks run (evaluated in local system time)
+- **Timezone-aware cron scheduling** — Use familiar `*/5 * * * *` syntax and run tasks in a task-specific timezone, a global default timezone, or the machine local timezone
 - **Minimize to tray** — Closing the window hides it to the system tray; click the tray icon to restore
 - **Live dashboard** — See every task's status, last run time, exit code, and stdout/stderr at a glance
 - **Stop running tasks** — Click the **■ Stop** button on the dashboard to cancel a task mid-execution (kills the entire process tree)
@@ -63,10 +63,13 @@ See [Building from Source](#building-from-source) below.
 4. Add your first task:
 
 ```toml
+[general]
+default_timezone = "America/New_York"
+
 [[task]]
 name = "my-backup"
 command = 'robocopy C:\Data D:\Backup /MIR'
-cron = "0 2 * * *"        # runs every day at 2:00 AM (local time)
+cron = "0 2 * * *"        # runs every day at 2:00 AM in America/New_York
 timeout = "10m"
 notify_on_failure = true
 ```
@@ -88,6 +91,7 @@ A fully annotated example is provided in [`config.example.toml`](config.example.
 | `max_log_retention_days` | `30` | Days to keep task run logs before pruning |
 | `start_with_windows` | `false` | Register TaskPilot to launch automatically at login |
 | `task_sources` | `[]` | List of external directories containing `.toml` task definitions |
+| `default_timezone` | local system time | Default IANA timezone for cron evaluation (for example `America/Sao_Paulo`). Per-task `timezone` overrides it |
 
 ### `[notifications]`
 
@@ -114,13 +118,14 @@ Each task is a `[[task]]` table entry. You can define as many as you like.
 |---|---|---|
 | `name` | ✅ | Unique identifier shown in the dashboard |
 | `command` | ✅ | Command to run. Use single-quoted TOML strings for commands with backslashes — see [Quoting & Escaping](#quoting--escaping-in-commands). |
-| `cron` | — | 5-field cron expression (`minute hour day month weekday`). Optional if the task is only triggered by other tasks. |
+| `cron` | — | 5-field cron expression (`minute hour day month weekday`). Evaluated in the task's effective timezone. Optional if the task is only triggered by other tasks. |
 | `timeout` | — | Maximum run time before the task is killed (e.g. `30s`, `5m`, `1h`) |
 | `working_dir` | — | Directory to run the command in (supports `~/` expansion) |
 | `notify_on_failure` | — | Override the global notification setting for this task (default: `true`) |
 | `retries` | — | Number of additional attempts if the task fails (default: `0`) |
 | `run_missed` | — | Execute this task on catch-up if it was missed (default: `true`). Set to `false` to skip overdue runs. |
 | `shell` | — | Shell to use: `cmd`, `powershell`, `pwsh`, `sh`, `bash`. Overrides `general.default_shell`. Default: `powershell` (Windows) / `sh` (Unix). |
+| `timezone` | — | Optional IANA timezone for this task's cron schedule (for example `America/New_York`). Overrides `general.default_timezone`. If neither is set, TaskPilot uses the machine local timezone |
 | `triggers` | — | List of downstream tasks to trigger on completion. Each entry: `{ task = "name", on = "success" }`. Conditions: `success` (default), `failure`, `always`. |
 
 #### Cron expression examples
@@ -132,6 +137,32 @@ Each task is a `[[task]]` table entry. You can define as many as you like.
 | `0 9 * * 1-5` | 9:00 AM, Monday–Friday |
 | `30 2 * * *` | 2:30 AM every day |
 | `0 0 1 * *` | Midnight on the 1st of every month |
+
+#### Timezone precedence
+
+Cron schedules are evaluated using this order:
+
+1. `[[task]].timezone`
+2. `[general].default_timezone`
+3. machine local timezone
+
+Use IANA timezone names such as `America/Sao_Paulo`, `America/New_York`, or `Europe/London`.
+
+```toml
+[general]
+default_timezone = "America/New_York"
+
+[[task]]
+name = "global-default"
+command = "echo hello"
+cron = "0 6 * * *"   # 6:00 AM in America/New_York
+
+[[task]]
+name = "override"
+command = "echo hello"
+cron = "0 6 * * *"   # 6:00 AM in America/Sao_Paulo
+timezone = "America/Sao_Paulo"
+```
 
 #### Quoting & Escaping in commands
 
@@ -284,7 +315,7 @@ TaskPilot stores all runtime data in `.taskpilot/` next to the executable:
 ```
 .taskpilot/
 ├── config.toml                        # Main configuration file
-├── state.json                         # Scheduler state (last/next run times, local time)
+├── state.json                         # Scheduler state (last/next run times, displayed in local time)
 ├── update-state.json                  # Auto-update state (last check, available version)
 ├── runs/                              # Task run history
 │   └── <task-name>/                   # One directory per task
@@ -293,7 +324,7 @@ TaskPilot stores all runtime data in `.taskpilot/` next to the executable:
     └── app.log                        # Debug log (append-only)
 ```
 
-Each **run result** is a JSON file containing `task_name`, `status`, `exit_code`, `stdout`, `stderr`, `started_at`, `finished_at`, and `duration_ms`. All timestamps use the system's local timezone. Tasks execute silently in the background — commands are run via the configured shell (default: `powershell.exe` on Windows) with stdout/stderr captured in-memory (no terminal window is opened).
+Each **run result** is a JSON file containing `task_name`, `status`, `exit_code`, `stdout`, `stderr`, `started_at`, `finished_at`, and `duration_ms`. Run timestamps and **Next Run** are shown in the machine's local timezone, while each run snapshot also records the task's effective schedule timezone. Tasks execute silently in the background — commands are run via the configured shell (default: `powershell.exe` on Windows) with stdout/stderr captured in-memory (no terminal window is opened).
 
 The **debug log** is an append-only text file with lines in the format `[ISO-8601 timestamp] [component] message`.
 

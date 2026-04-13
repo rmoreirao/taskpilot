@@ -22,6 +22,10 @@ pub struct TaskRunConfig {
     pub command: String,
     pub cron: String,
     #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default)]
+    pub effective_timezone: String,
+    #[serde(default)]
     pub timeout: Option<String>,
     #[serde(default)]
     pub working_dir: Option<String>,
@@ -73,6 +77,8 @@ pub struct TaskScheduleState {
     pub last_status: Option<RunStatus>,
     #[serde(default)]
     pub cron_expr: Option<String>,
+    #[serde(default)]
+    pub effective_timezone: Option<String>,
 }
 
 pub struct Workspace {

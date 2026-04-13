@@ -12,6 +12,7 @@ Full field-by-field reference for `.taskpilot/config.toml`.
 | `task_sources` | array of strings | `[]` | List of external directories containing `.toml` task definitions. Paths support `~/` expansion. Merged with CLI `--task-dir` arguments. |
 | `task_configs` | array of strings | `[]` | List of individual `.toml` task definition files. Paths support `~/` expansion. Same format as files in `task_sources` directories. |
 | `default_shell` | string | *(platform)* | Default shell for all tasks. One of: `"cmd"` (Windows default), `"powershell"`, `"pwsh"`, `"sh"` (Unix default), `"bash"`. Per-task `shell` overrides this. Only valid in the main config; ignored in external task files. |
+| `default_timezone` | string | local system time | Default IANA timezone used for cron evaluation. Example: `"America/Sao_Paulo"`. Per-task `timezone` overrides it. |
 
 ### Example
 
@@ -23,6 +24,7 @@ start_with_windows = true
 task_sources = ["C:\\SharedTasks", "~/team-tasks"]
 task_configs = ["C:\\SharedTasks\\special-task.toml", "~/my-task.toml"]
 default_shell = "pwsh"     # all tasks use PowerShell Core unless overridden
+default_timezone = "America/New_York"
 ```
 
 ---
@@ -78,13 +80,14 @@ Each task is a repeatable `[[task]]` table. You can define as many as needed.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `cron` | string | none | Standard 5-field cron expression: `minute hour day month weekday`. Evaluated in local system time. Required unless the task is only triggered by other tasks. |
+| `cron` | string | none | Standard 5-field cron expression: `minute hour day month weekday`. Evaluated in the task's effective timezone. Required unless the task is only triggered by other tasks. |
 | `timeout` | string | none | Maximum run time before the task is killed. Format: `"30s"`, `"5m"`, `"1h"`, or plain seconds `"60"`. |
 | `working_dir` | string | none | Directory to run the command in. Supports `~/` expansion. |
 | `notify_on_failure` | boolean | `true` | Override the global notification setting for this task. |
 | `retries` | integer | `0` | Number of additional attempts if the task fails (exit code ≠ 0). The task is retried immediately. |
 | `run_missed` | boolean | `true` | Execute this task on catch-up if it was missed while TaskPilot was not running or the machine was asleep. When `false`, overdue runs are skipped and `next_run` advances to the next future occurrence. |
 | `shell` | string | *(inherited)* | Shell to execute this task's command. One of: `"cmd"`, `"powershell"`, `"pwsh"`, `"sh"`, `"bash"`. Overrides `general.default_shell`. If neither is set, uses `powershell` on Windows or `sh` on Unix. PowerShell variants run with `-NoProfile -NonInteractive -Command`. |
+| `timezone` | string | *(inherited)* | Optional IANA timezone for this task's cron schedule, for example `"America/Sao_Paulo"`. Overrides `general.default_timezone`. If neither is set, TaskPilot uses the machine local timezone. |
 | `triggers` | array of tables | `[]` | Downstream tasks to trigger when this task completes. See **Triggers** section below. |
 
 ### Example
@@ -99,6 +102,7 @@ working_dir = "C:\\Scripts"
 notify_on_failure = true
 retries = 2
 run_missed = true
+timezone = "America/New_York"
 
 [[task]]
 name = "ps-health-check"
@@ -106,7 +110,18 @@ command = "Get-Service | Where-Object { $_.Status -ne 'Running' } | ForEach-Obje
 cron = "*/30 * * * *"
 shell = "pwsh"
 timeout = "1m"
+timezone = "America/Sao_Paulo"
 ```
+
+### Timezone Resolution
+
+Cron schedules are evaluated using this precedence:
+
+1. `[[task]].timezone`
+2. `[general].default_timezone`
+3. machine local timezone
+
+Use IANA names such as `"America/New_York"`, `"America/Sao_Paulo"`, or `"Europe/London"`. Invalid timezone names cause config loading to fail with a clear error.
 
 ### Triggers (Pipelines)
 

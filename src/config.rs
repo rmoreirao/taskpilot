@@ -105,6 +105,8 @@ pub struct GeneralConfig {
     pub task_configs: Vec<String>,
     #[serde(default)]
     pub default_shell: Option<Shell>,
+    #[serde(default)]
+    pub default_timezone: Option<String>,
 }
 
 fn default_log_level() -> String {
@@ -123,6 +125,7 @@ impl Default for GeneralConfig {
             task_sources: Vec::new(),
             task_configs: Vec::new(),
             default_shell: None,
+            default_timezone: None,
         }
     }
 }
@@ -185,6 +188,8 @@ pub struct TaskConfig {
     #[serde(default)]
     pub shell: Option<Shell>,
     #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default)]
     pub triggers: Vec<TriggerConfig>,
 }
 
@@ -192,7 +197,10 @@ impl AppConfig {
     pub fn load(path: &Path) -> Result<Self, String> {
         let content =
             std::fs::read_to_string(path).map_err(|e| format!("Failed to read config: {}", e))?;
-        toml::from_str(&content).map_err(|e| format!("Failed to parse config: {}", e))
+        let config: Self =
+            toml::from_str(&content).map_err(|e| format!("Failed to parse config: {}", e))?;
+        crate::timezone::validate_app_timezones(&config)?;
+        Ok(config)
     }
 
     pub fn default_config() -> Self {
@@ -211,6 +219,7 @@ impl AppConfig {
                     retries: None,
                     run_missed: true,
                     shell: None,
+                    timezone: None,
                     triggers: Vec::new(),
                 },
                 TaskConfig {
@@ -223,6 +232,7 @@ impl AppConfig {
                     retries: None,
                     run_missed: true,
                     shell: None,
+                    timezone: None,
                     triggers: Vec::new(),
                 },
             ],
