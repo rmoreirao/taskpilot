@@ -1,7 +1,9 @@
 use crate::config::AppConfig;
+use crate::config_diagnostics::ConfigAlert;
+use crate::runtime_config::{self, ReloadConfigOutcome, RuntimeConfigState};
 use crate::scheduler::{self, SchedulerCommand, SchedulerEvent, SchedulerHandle, start_scheduler};
 use crate::single_instance::SingleInstanceGuard;
-use crate::task_sources::{self, TaskSourceInfo};
+use crate::task_sources::TaskSourceInfo;
 use crate::timezone;
 use crate::tray::{TrayEvent, TrayManager};
 use crate::updater::{self, UpdateState};
@@ -99,6 +101,8 @@ pub struct TaskPilotApp {
     pub(crate) update_state: UpdateState,
     pub(crate) update_progress: UpdateProgress,
     pub(crate) update_banner_dismissed: bool,
+    pub(crate) config_alert: Option<ConfigAlert>,
+    pub(crate) config_alert_dismissed: bool,
     update_check_rx: Option<std::sync::mpsc::Receiver<Result<UpdateState, String>>>,
     update_apply_rx: Option<std::sync::mpsc::Receiver<Result<updater::UpdateResult, String>>>,
     last_update_check: Option<Instant>,
@@ -107,19 +111,16 @@ pub struct TaskPilotApp {
 impl TaskPilotApp {
     pub fn new(
         workspace: Arc<Workspace>,
-        config: AppConfig,
+        state: RuntimeConfigState,
         tray: TrayManager,
-        source_metadata: HashMap<String, TaskSourceInfo>,
-        source_dirs: Vec<PathBuf>,
-        source_files: Vec<PathBuf>,
         cli_task_dirs: Vec<PathBuf>,
         single_instance_guard: SingleInstanceGuard,
     ) -> Self {
         let config_content = workspace.config_content();
-        let scheduler = start_scheduler(config.clone(), Arc::clone(&workspace));
+        let scheduler = start_scheduler(state.config.clone(), Arc::clone(&workspace));
 
         // Set up file watcher for external source directories and individual files
-        let (watcher, watcher_rx) = Self::create_watcher(&source_dirs, &source_files);
+        let (watcher, watcher_rx) = Self::create_watcher(&state.source_dirs, &state.source_files);
 
         // Clean up old binaries from a previous update
         updater::cleanup_old_binaries();
@@ -137,7 +138,7 @@ impl TaskPilotApp {
 
         let mut app = Self {
             workspace,
-            config,
+            config: state.config,
             config_content,
             scheduler,
             current_view: View::Tasks,
@@ -157,9 +158,9 @@ impl TaskPilotApp {
             search_filter: String::new(),
             tray,
             should_quit: false,
-            source_metadata,
-            source_dirs,
-            source_files,
+            source_metadata: state.source_metadata,
+            source_dirs: state.source_dirs,
+            source_files: state.source_files,
             cli_task_dirs,
             _watcher: watcher,
             watcher_rx,
@@ -170,6 +171,8 @@ impl TaskPilotApp {
             update_state,
             update_progress,
             update_banner_dismissed: false,
+            config_alert: state.config_alert,
+            config_alert_dismissed: false,
             update_check_rx: None,
             update_apply_rx: None,
             last_update_check: None,
@@ -234,6 +237,44 @@ impl TaskPilotApp {
                 (None, None)
             }
         }
+    }
+
+    fn runtime_state(&self) -> RuntimeConfigState {
+        RuntimeConfigState {
+            config: self.config.clone(),
+            source_metadata: self.source_metadata.clone(),
+            source_dirs: self.source_dirs.clone(),
+            source_files: self.source_files.clone(),
+            config_alert: self.config_alert.clone(),
+        }
+    }
+
+    fn set_config_alert(&mut self, alert: Option<ConfigAlert>) {
+        self.config_alert = alert;
+        self.config_alert_dismissed = false;
+    }
+
+    fn apply_config_state(&mut self, state: RuntimeConfigState) {
+        let source_dirs_changed = state.source_dirs != self.source_dirs;
+        let source_files_changed = state.source_files != self.source_files;
+
+        self.config = state.config.clone();
+        self.source_metadata = state.source_metadata;
+        self.set_config_alert(state.config_alert);
+
+        if source_dirs_changed || source_files_changed {
+            let (watcher, watcher_rx) = Self::create_watcher(&state.source_dirs, &state.source_files);
+            self._watcher = watcher;
+            self.watcher_rx = watcher_rx;
+            self.source_dirs = state.source_dirs;
+            self.source_files = state.source_files;
+        }
+
+        self.refresh_task_statuses();
+        let _ = self
+            .scheduler
+            .cmd_tx
+            .send(SchedulerCommand::UpdateConfig(state.config));
     }
 
     /// Load task detail runs (metadata only) and paginate for the current view.
@@ -401,74 +442,20 @@ impl TaskPilotApp {
     }
 
     pub(crate) fn reload_config(&mut self) {
-        match AppConfig::load(&self.workspace.config_path()) {
-            Ok(new_config) => {
-                // Rebuild source dirs: config task_sources + CLI --task-dir
-                let mut source_dirs: Vec<PathBuf> = new_config
-                    .general
-                    .task_sources
-                    .iter()
-                    .map(PathBuf::from)
-                    .collect();
-                for dir in &self.cli_task_dirs {
-                    if !source_dirs.contains(dir) {
-                        source_dirs.push(dir.clone());
-                    }
-                }
+        self.config_content = self.workspace.config_content();
+        let ReloadConfigOutcome { state, applied } = runtime_config::load_reload_state(
+            &self.workspace,
+            &self.cli_task_dirs,
+            &self.runtime_state(),
+        );
 
-                // Rebuild individual source files from config
-                let source_files: Vec<PathBuf> = new_config
-                    .general
-                    .task_configs
-                    .iter()
-                    .map(PathBuf::from)
-                    .collect();
-
-                // Reload external tasks
-                match task_sources::load_all(
-                    &new_config.tasks,
-                    &self.workspace.config_path(),
-                    &source_dirs,
-                    &source_files,
-                    new_config.general.default_timezone.as_deref(),
-                    Some(&self.workspace),
-                ) {
-                    Ok((merged_tasks, source_metadata)) => {
-                        let mut effective_config = new_config;
-                        effective_config.tasks = merged_tasks;
-
-                        self.config = effective_config.clone();
-                        self.config_content = self.workspace.config_content();
-                        self.source_metadata = source_metadata;
-
-                        // Recreate watcher if source dirs or files changed
-                        if source_dirs != self.source_dirs || source_files != self.source_files {
-                            let (watcher, watcher_rx) = Self::create_watcher(&source_dirs, &source_files);
-                            self._watcher = watcher;
-                            self.watcher_rx = watcher_rx;
-                            self.source_dirs = source_dirs;
-                            self.source_files = source_files;
-                        }
-
-                        let _ = self
-                            .scheduler
-                            .cmd_tx
-                            .send(SchedulerCommand::UpdateConfig(effective_config));
-                        let _ = self
-                            .workspace
-                            .append_debug_log("app", "Config reloaded successfully with external sources");
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to load external task sources: {}", e);
-                        let _ = self
-                            .workspace
-                            .append_debug_log("app", &format!("External source error: {}", e));
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Failed to reload config: {}", e);
-            }
+        if applied {
+            self.apply_config_state(state);
+            let _ = self
+                .workspace
+                .append_debug_log("app", "Config reloaded successfully");
+        } else {
+            self.set_config_alert(state.config_alert);
         }
     }
 

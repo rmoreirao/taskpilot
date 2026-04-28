@@ -107,6 +107,10 @@ pub struct GeneralConfig {
     pub default_shell: Option<Shell>,
     #[serde(default)]
     pub default_timezone: Option<String>,
+    /// When true, PowerShell/pwsh shells load the user's profile (omits `-NoProfile`).
+    /// Defaults to true so that user PATH and environment are available to tasks.
+    #[serde(default = "default_true")]
+    pub load_profile: bool,
 }
 
 fn default_log_level() -> String {
@@ -126,6 +130,7 @@ impl Default for GeneralConfig {
             task_configs: Vec::new(),
             default_shell: None,
             default_timezone: None,
+            load_profile: true,
         }
     }
 }
@@ -189,6 +194,9 @@ pub struct TaskConfig {
     pub shell: Option<Shell>,
     #[serde(default)]
     pub timezone: Option<String>,
+    /// Per-task override for profile loading. When set, overrides the global `load_profile`.
+    #[serde(default)]
+    pub load_profile: Option<bool>,
     #[serde(default)]
     pub triggers: Vec<TriggerConfig>,
 }
@@ -220,6 +228,7 @@ impl AppConfig {
                     run_missed: true,
                     shell: None,
                     timezone: None,
+                    load_profile: None,
                     triggers: Vec::new(),
                 },
                 TaskConfig {
@@ -233,6 +242,7 @@ impl AppConfig {
                     run_missed: true,
                     shell: None,
                     timezone: None,
+                    load_profile: None,
                     triggers: Vec::new(),
                 },
             ],

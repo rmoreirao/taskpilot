@@ -58,6 +58,8 @@ The app opens a dashboard window and a system tray icon. Closing the window hide
 
 After editing `config.toml`, open the **Settings** view in the dashboard and click **Reload Config**.
 No restart is needed. External task source directories are watched automatically and reload on file changes.
+If TaskPilot finds a config or referenced task-source problem, it shows a warning/error banner in
+the UI and writes the details to `.taskpilot/debug/app.log` and `.taskpilot/debug/task-runs.log`.
 
 ## CLI Flags
 
@@ -122,7 +124,8 @@ TaskPilot stores all runtime data in `.taskpilot/` next to the executable:
 │   └── <task-name>/     # One directory per task
 │       └── YYYY-MM-DDTHHMMSS.json   # Individual run results
 └── debug/
-    └── app.log          # Debug log
+    ├── app.log          # Debug log
+    └── task-runs.log    # Task/config warnings and errors
 ```
 
 ## Config Sections Overview
@@ -147,7 +150,7 @@ command = "curl http://localhost:8080/health"   # Executed via cmd /C (default)
 cron = "*/5 * * * *"           # Standard 5-field cron expression
 ```
 
-Optional fields: `timeout` (e.g. `"30s"`, `"5m"`, `"1h"`), `working_dir`, `notify_on_failure`, `retries`, `run_missed` (default: `true` — catch up overdue tasks on startup/resume; set `false` to skip), `shell` (override: `"cmd"`, `"powershell"`, `"pwsh"`, `"sh"`, `"bash"`), `timezone` (IANA name like `"America/Sao_Paulo"`), `triggers` (downstream task pipeline).
+Optional fields: `timeout` (e.g. `"30s"`, `"5m"`, `"1h"`), `working_dir`, `notify_on_failure`, `retries`, `run_missed` (default: `true` — catch up overdue tasks on startup/resume; set `false` to skip), `shell` (override: `"cmd"`, `"powershell"`, `"pwsh"`, `"sh"`, `"bash"`), `timezone` (IANA name like `"America/Sao_Paulo"`), `load_profile` (boolean, per-task override for PowerShell profile loading), `triggers` (downstream task pipeline).
 
 ### Timezone scheduling
 
@@ -233,8 +236,9 @@ See [TASK-FORMATS.md](references/TASK-FORMATS.md) for details.
 External directories are **watched for changes** — when `.toml` files are added, modified, or deleted,
 tasks reload automatically. External tasks appear in the dashboard with a 📁 badge and are read-only.
 
-Task names must be unique across all sources. If duplicates are found, TaskPilot logs an error
-and falls back to local tasks only (external sources are skipped). The app still starts.
+Task names must be unique across all sources. If duplicates are found, TaskPilot logs an error,
+shows the problem in the UI, and falls back to local tasks only (external sources are skipped).
+The app still starts.
 
 ## Common Cron Expressions
 
@@ -255,10 +259,12 @@ it is **not** applied automatically on startup or config reload; use the UI to c
 
 ## Troubleshooting
 
-- **Only example tasks showing?** If `config.toml` fails to parse, TaskPilot silently falls back
-  to default example tasks. Check the file for TOML syntax errors.
+- **Only example tasks showing?** If `config.toml` fails to parse, TaskPilot falls back to the
+  built-in example tasks, shows a config error banner in the UI, and logs the full reason in
+  `.taskpilot/debug/app.log` and `.taskpilot/debug/task-runs.log`.
 - **External tasks not loading?** If any task name collides across sources, all external sources
-  are skipped. Check `debug/app.log` for error messages.
+  are skipped. Missing referenced files, broken task TOML, and validation errors are also surfaced
+  in the UI and logs with the affected source path.
 - **Config changes not taking effect?** Click **Reload Config** in the Settings view. External
   source directories are watched automatically, but `config.toml` itself requires a manual reload.
 - **"OpenGL 2.0+" or "no suitable adapter" errors on Windows Server?** The machine likely has no

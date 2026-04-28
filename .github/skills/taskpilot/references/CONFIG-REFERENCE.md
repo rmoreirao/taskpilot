@@ -13,6 +13,7 @@ Full field-by-field reference for `.taskpilot/config.toml`.
 | `task_configs` | array of strings | `[]` | List of individual `.toml` task definition files. Paths support `~/` expansion. Same format as files in `task_sources` directories. |
 | `default_shell` | string | *(platform)* | Default shell for all tasks. One of: `"cmd"` (Windows default), `"powershell"`, `"pwsh"`, `"sh"` (Unix default), `"bash"`. Per-task `shell` overrides this. Only valid in the main config; ignored in external task files. |
 | `default_timezone` | string | local system time | Default IANA timezone used for cron evaluation. Example: `"America/Sao_Paulo"`. Per-task `timezone` overrides it. |
+| `load_profile` | boolean | `true` | When true, PowerShell/pwsh shells load the user's profile (omits `-NoProfile`). Set to `false` for faster shell startup if your tasks don't need profile-provided environment variables. Per-task `load_profile` overrides this. |
 
 ### Example
 
@@ -86,8 +87,9 @@ Each task is a repeatable `[[task]]` table. You can define as many as needed.
 | `notify_on_failure` | boolean | `true` | Override the global notification setting for this task. |
 | `retries` | integer | `0` | Number of additional attempts if the task fails (exit code ≠ 0). The task is retried immediately. |
 | `run_missed` | boolean | `true` | Execute this task on catch-up if it was missed while TaskPilot was not running or the machine was asleep. When `false`, overdue runs are skipped and `next_run` advances to the next future occurrence. |
-| `shell` | string | *(inherited)* | Shell to execute this task's command. One of: `"cmd"`, `"powershell"`, `"pwsh"`, `"sh"`, `"bash"`. Overrides `general.default_shell`. If neither is set, uses `powershell` on Windows or `sh` on Unix. PowerShell variants run with `-NoProfile -NonInteractive -Command`. |
+| `shell` | string | *(inherited)* | Shell to execute this task's command. One of: `"cmd"`, `"powershell"`, `"pwsh"`, `"sh"`, `"bash"`. Overrides `general.default_shell`. If neither is set, uses `powershell` on Windows or `sh` on Unix. PowerShell variants run with `-NonInteractive -Command` (and `-NoProfile` unless `load_profile` is true). |
 | `timezone` | string | *(inherited)* | Optional IANA timezone for this task's cron schedule, for example `"America/Sao_Paulo"`. Overrides `general.default_timezone`. If neither is set, TaskPilot uses the machine local timezone. |
+| `load_profile` | boolean | *(inherited)* | Per-task override for profile loading. When true, PowerShell/pwsh shells omit `-NoProfile`. Overrides `general.load_profile`. |
 | `triggers` | array of tables | `[]` | Downstream tasks to trigger when this task completes. See **Triggers** section below. |
 
 ### Example
@@ -243,8 +245,8 @@ By default, commands run via `cmd /C` on Windows and `sh -c` on Unix. You can ov
 | Value | Program | Flags |
 |---|---|---|
 | `cmd` | `cmd.exe` | `/C` |
-| `powershell` | `powershell.exe` | `-NoProfile -NonInteractive -Command` |
-| `pwsh` | `pwsh.exe` | `-NoProfile -NonInteractive -Command` |
+| `powershell` | `powershell.exe` | `-NonInteractive -Command` (+ `-NoProfile` when `load_profile = false`) |
+| `pwsh` | `pwsh.exe` | `-NonInteractive -Command` (+ `-NoProfile` when `load_profile = false`) |
 | `sh` | `sh` | `-c` |
 | `bash` | `bash` | `-c` |
 

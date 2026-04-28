@@ -92,6 +92,7 @@ A fully annotated example is provided in [`config.example.toml`](config.example.
 | `start_with_windows` | `false` | Register TaskPilot to launch automatically at login |
 | `task_sources` | `[]` | List of external directories containing `.toml` task definitions |
 | `default_timezone` | local system time | Default IANA timezone for cron evaluation (for example `America/Sao_Paulo`). Per-task `timezone` overrides it |
+| `load_profile` | `true` | When true, PowerShell/pwsh shells load the user's profile (omits `-NoProfile`). Set to `false` for faster shell startup. Per-task `load_profile` overrides this |
 
 ### `[notifications]`
 
@@ -126,6 +127,7 @@ Each task is a `[[task]]` table entry. You can define as many as you like.
 | `run_missed` | — | Execute this task on catch-up if it was missed (default: `true`). Set to `false` to skip overdue runs. |
 | `shell` | — | Shell to use: `cmd`, `powershell`, `pwsh`, `sh`, `bash`. Overrides `general.default_shell`. Default: `powershell` (Windows) / `sh` (Unix). |
 | `timezone` | — | Optional IANA timezone for this task's cron schedule (for example `America/New_York`). Overrides `general.default_timezone`. If neither is set, TaskPilot uses the machine local timezone |
+| `load_profile` | — | Per-task override for PowerShell profile loading. Overrides `general.load_profile`. |
 | `triggers` | — | List of downstream tasks to trigger on completion. Each entry: `{ task = "name", on = "success" }`. Conditions: `success` (default), `failure`, `always`. |
 
 #### Cron expression examples
@@ -220,7 +222,7 @@ task_sources = ["C:\\SharedTasks", "D:\\team-tasks"]
 taskpilot.exe --task-dir C:\SharedTasks --task-dir D:\team-tasks
 ```
 
-CLI and config sources are merged (duplicates removed). If any task name appears in more than one source, TaskPilot reports an error.
+CLI and config sources are merged (duplicates removed). If any task name appears in more than one source, TaskPilot reports an error, shows it in the UI, and logs the affected source paths.
 
 External directories are **watched for changes** — when `.toml` files are added, modified, or deleted, tasks are automatically reloaded. External tasks are shown in the dashboard with a 📁 source badge and are read-only.
 
@@ -304,7 +306,7 @@ The CLI binary:
 
 ### Reload config
 
-After editing `config.toml`, open the **Settings** view in the dashboard and click **Reload Config**. No restart needed.
+After editing `config.toml`, open the **Settings** view in the dashboard and click **Reload Config**. No restart needed. If TaskPilot finds a config or referenced task-source problem, it shows a warning/error banner in the UI and writes the details to `.taskpilot\debug\app.log` and `.taskpilot\debug\task-runs.log`.
 
 ---
 
@@ -321,7 +323,8 @@ TaskPilot stores all runtime data in `.taskpilot/` next to the executable:
 │   └── <task-name>/                   # One directory per task
 │       └── YYYY-MM-DDTHHMMSS.json    # Individual run result
 └── debug/
-    └── app.log                        # Debug log (append-only)
+    ├── app.log                        # Debug log (append-only)
+    └── task-runs.log                  # Task/config warnings and errors
 ```
 
 Each **run result** is a JSON file containing `task_name`, `status`, `exit_code`, `stdout`, `stderr`, `started_at`, `finished_at`, and `duration_ms`. Run timestamps and **Next Run** are shown in the machine's local timezone, while each run snapshot also records the task's effective schedule timezone. Tasks execute silently in the background — commands are run via the configured shell (default: `powershell.exe` on Windows) with stdout/stderr captured in-memory (no terminal window is opened).

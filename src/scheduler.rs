@@ -1,5 +1,5 @@
 use crate::config::{AppConfig, TriggerCondition};
-use crate::executor::{execute_task_at, new_cancel_token, resolve_shell, CancelToken};
+use crate::executor::{execute_task_at, new_cancel_token, resolve_load_profile, resolve_shell, CancelToken};
 use crate::logging::LogLevel;
 use crate::timezone;
 use crate::workspace::{TaskScheduleState, RunStatus, SchedulerState, Workspace};
@@ -459,11 +459,12 @@ fn spawn_task(
     let notify_cfg = config.notifications.clone();
     let task_triggers = task.triggers.clone();
     let shell = resolve_shell(task.shell, config.general.default_shell);
+    let load_profile = resolve_load_profile(task.load_profile, config.general.load_profile);
     let default_timezone = config.general.default_timezone.clone();
     let effective_timezone = effective_timezone_label(&task, config);
 
     thread::spawn(move || {
-        let run = execute_task_at(&task, &ws, &cancel, shell, effective_timezone, started_at);
+        let run = execute_task_at(&task, &ws, &cancel, shell, load_profile, effective_timezone, started_at);
         let status = run.status.clone();
 
         // Persist last_status and re-advance next_run to first future occurrence

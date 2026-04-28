@@ -258,6 +258,7 @@ fn run_task_with_triggers(
 
     let cancel = executor::new_cancel_token();
     let shell = executor::resolve_shell(task.shell, config.general.default_shell);
+    let load_profile = executor::resolve_load_profile(task.load_profile, config.general.load_profile);
     let effective_timezone = timezone::effective_timezone_label(
         task,
         config.general.default_timezone.as_deref(),
@@ -268,6 +269,7 @@ fn run_task_with_triggers(
         workspace,
         &cancel,
         shell,
+        load_profile,
         effective_timezone,
         chrono::Local::now(),
     );

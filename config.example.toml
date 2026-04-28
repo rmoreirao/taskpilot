@@ -102,11 +102,18 @@ notify_on_failure = true
 # [general]
 # default_shell = "pwsh"
 #
+# Profile loading: PowerShell/pwsh shells load the user's profile by default
+# (so that PATH and environment variables are available). Set to false for
+# faster startup if your tasks don't need profile-provided settings.
+# [general]
+# load_profile = false     # adds -NoProfile for faster startup
+#
 # Per-task override:
 # [[task]]
 # name = "ps-task"
 # command = "Get-ChildItem C:\\Data | Measure-Object"
 # shell = "pwsh"
+# load_profile = false     # skip profile for this task
 # cron = "0 8 * * *"
 #
 # PowerShell note: non-terminating errors still exit 0.

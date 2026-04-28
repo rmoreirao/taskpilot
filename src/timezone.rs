@@ -119,6 +119,7 @@ mod tests {
             run_missed: true,
             shell: None,
             timezone: None,
+            load_profile: None,
             triggers: Vec::new(),
         }
     }

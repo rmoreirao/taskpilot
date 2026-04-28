@@ -1,9 +1,11 @@
 pub mod app;
 pub mod autostart;
 pub mod config;
+pub mod config_diagnostics;
 pub mod executor;
 pub mod logging;
 pub mod renderer;
+pub mod runtime_config;
 pub mod scheduler;
 pub mod single_instance;
 pub mod task_sources;

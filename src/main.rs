@@ -1,11 +1,9 @@
 #![windows_subsystem = "windows"]
 
 use taskpilot::app::TaskPilotApp;
-use taskpilot::config::AppConfig;
-use taskpilot::logging::parse_log_level;
 use taskpilot::renderer;
+use taskpilot::runtime_config;
 use taskpilot::single_instance::SingleInstanceGuard;
-use taskpilot::task_sources;
 use taskpilot::tray::TrayManager;
 use taskpilot::workspace::{self, Workspace};
 
@@ -47,18 +45,7 @@ fn main() -> eframe::Result<()> {
     let workspace = Arc::new(Workspace::new(workspace_dir));
     workspace.ensure_dirs().expect("Failed to create workspace");
 
-    let config_path = workspace.config_path();
-    let config = if config_path.exists() {
-        AppConfig::load(&config_path).unwrap_or_else(|e| {
-            eprintln!("Config error: {}. Using defaults.", e);
-            AppConfig::default_config()
-        })
-    } else {
-        let _ = AppConfig::save_default(&config_path);
-        AppConfig::default_config()
-    };
-
-    workspace.set_log_level(parse_log_level(&config.general.log_level));
+    let startup_state = runtime_config::load_startup_state(&workspace, &cli_task_dirs);
 
     // Install a panic hook that writes to the debug log so crashes are visible
     // even with #![windows_subsystem = "windows"] (no console attached).
@@ -67,55 +54,6 @@ fn main() -> eframe::Result<()> {
         let msg = format!("{info}");
         let _ = workspace::append_debug_log(&panic_log_path, "PANIC", &msg);
     }));
-
-    // Merge config task_sources with CLI --task-dir arguments
-    let mut source_dirs: Vec<std::path::PathBuf> = config
-        .general
-        .task_sources
-        .iter()
-        .map(std::path::PathBuf::from)
-        .collect();
-    for dir in &cli_task_dirs {
-        if !source_dirs.contains(dir) {
-            source_dirs.push(dir.clone());
-        }
-    }
-
-    // Collect individual task config files
-    let source_files: Vec<std::path::PathBuf> = config
-        .general
-        .task_configs
-        .iter()
-        .map(std::path::PathBuf::from)
-        .collect();
-
-    // Load and merge tasks from all sources
-    let (merged_tasks, source_metadata) =
-        task_sources::load_all(
-            &config.tasks,
-            &config_path,
-            &source_dirs,
-            &source_files,
-            config.general.default_timezone.as_deref(),
-            Some(&workspace),
-        ).unwrap_or_else(|e| {
-            eprintln!("Task source error: {}. Using local tasks only.", e);
-            let mut map = std::collections::HashMap::new();
-            for task in &config.tasks {
-                map.insert(
-                    task.name.clone(),
-                    task_sources::TaskSourceInfo {
-                        origin: task_sources::TaskOrigin::Local,
-                        file_path: config_path.clone(),
-                    },
-                );
-            }
-            (config.tasks.clone(), map)
-        });
-
-    // Build the effective config with merged tasks
-    let mut effective_config = config;
-    effective_config.tasks = merged_tasks;
 
     let icon_png = include_bytes!("../assets/icon.png");
     let icon_img = ImageReader::new(Cursor::new(icon_png))
@@ -165,10 +103,7 @@ fn main() -> eframe::Result<()> {
         };
 
         let ws = workspace.clone();
-        let cfg = effective_config.clone();
-        let meta = source_metadata.clone();
-        let dirs = source_dirs.clone();
-        let files = source_files.clone();
+        let startup = startup_state.clone();
         let cli = cli_task_dirs.clone();
         let guard = guard_slot.clone();
 
@@ -184,9 +119,7 @@ fn main() -> eframe::Result<()> {
                     .expect("guard lock poisoned")
                     .take()
                     .expect("single-instance guard already consumed");
-                Ok(Box::new(TaskPilotApp::new(
-                    ws, cfg, tray, meta, dirs, files, cli, sig,
-                )))
+                Ok(Box::new(TaskPilotApp::new(ws, startup, tray, cli, sig)))
             }),
         )
     };
@@ -220,6 +153,7 @@ fn main() -> eframe::Result<()> {
     };
 
     let ws = workspace.clone();
+    let startup = startup_state;
     let guard = guard_slot.clone();
 
     let fallback_result = eframe::run_native(
@@ -236,11 +170,8 @@ fn main() -> eframe::Result<()> {
                 .expect("single-instance guard already consumed");
             Ok(Box::new(TaskPilotApp::new(
                 ws,
-                effective_config,
+                startup,
                 tray,
-                source_metadata,
-                source_dirs,
-                source_files,
                 cli_task_dirs,
                 sig,
             )))

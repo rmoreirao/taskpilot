@@ -34,7 +34,7 @@ struct ShellSpec {
 }
 
 impl ShellSpec {
-    fn from_shell(shell: Shell) -> Self {
+    fn from_shell(shell: Shell, load_profile: bool) -> Self {
         match shell {
             Shell::Cmd => ShellSpec {
                 program: "cmd",
@@ -43,12 +43,20 @@ impl ShellSpec {
             },
             Shell::PowerShell => ShellSpec {
                 program: "powershell.exe",
-                pre_args: vec!["-NoProfile", "-NonInteractive", "-Command"],
+                pre_args: if load_profile {
+                    vec!["-NonInteractive", "-Command"]
+                } else {
+                    vec!["-NoProfile", "-NonInteractive", "-Command"]
+                },
                 uses_raw_arg: false,
             },
             Shell::Pwsh => ShellSpec {
                 program: "pwsh.exe",
-                pre_args: vec!["-NoProfile", "-NonInteractive", "-Command"],
+                pre_args: if load_profile {
+                    vec!["-NonInteractive", "-Command"]
+                } else {
+                    vec!["-NoProfile", "-NonInteractive", "-Command"]
+                },
                 uses_raw_arg: false,
             },
             Shell::Sh => ShellSpec {
@@ -72,6 +80,11 @@ pub fn resolve_shell(task_shell: Option<Shell>, default_shell: Option<Shell>) ->
         .unwrap_or_else(Shell::platform_default)
 }
 
+/// Resolve load_profile: task-level > global default (true).
+pub fn resolve_load_profile(task_load_profile: Option<bool>, global_load_profile: bool) -> bool {
+    task_load_profile.unwrap_or(global_load_profile)
+}
+
 pub fn parse_duration(s: &str) -> Option<Duration> {
     let s = s.trim();
     if let Some(secs) = s.strip_suffix('s') {
@@ -85,12 +98,13 @@ pub fn parse_duration(s: &str) -> Option<Duration> {
     }
 }
 
-pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelToken, shell: Shell) -> TaskRun {
+pub fn execute_task(task: &TaskConfig, workspace: &Workspace, cancel: &CancelToken, shell: Shell, load_profile: bool) -> TaskRun {
     execute_task_at(
         task,
         workspace,
         cancel,
         shell,
+        load_profile,
         task.timezone
             .clone()
             .unwrap_or_else(|| "system local time".to_string()),
@@ -103,6 +117,7 @@ pub fn execute_task_at(
     workspace: &Workspace,
     cancel: &CancelToken,
     shell: Shell,
+    load_profile: bool,
     effective_timezone: String,
     started_at: DateTime<Local>,
 ) -> TaskRun {
@@ -212,6 +227,7 @@ pub fn execute_task_at(
             &task.name,
             cancel,
             shell,
+            load_profile,
         );
         let elapsed = start_instant.elapsed();
         let finished_at = Local::now();
@@ -358,8 +374,9 @@ fn run_command(
     task_name: &str,
     cancel: &CancelToken,
     shell: Shell,
+    load_profile: bool,
 ) -> CommandResult {
-    let spec = ShellSpec::from_shell(shell);
+    let spec = ShellSpec::from_shell(shell, load_profile);
     workspace.log_task(
         LogLevel::Debug,
         "executor",
