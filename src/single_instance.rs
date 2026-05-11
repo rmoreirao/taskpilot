@@ -1,9 +1,10 @@
 /// Single-instance enforcement using a Windows Named Mutex and Named Event.
 ///
 /// - The mutex prevents multiple TaskPilot processes from running simultaneously.
-/// - The event allows a second instance to signal the first to restore its window,
-///   so the first instance uses its own viewport commands (no fragile cross-process
-///   window manipulation).
+/// - The event allows a second instance to signal the first to restore its window.
+/// - The second instance also directly shows/foregrounds the first instance's
+///   window via Win32 API, because eframe's `update()` loop (which polls the
+///   event) does not run while the window is hidden.
 
 #[cfg(windows)]
 mod platform {
@@ -87,7 +88,12 @@ mod platform {
         }
     }
 
-    /// Open the activation event owned by the first instance and signal it.
+    /// Open the activation event owned by the first instance and signal it,
+    /// then directly show and foreground the first instance's window via Win32.
+    ///
+    /// The second instance (us) is the foreground process because the user just
+    /// launched it, so `SetForegroundWindow` will succeed — unlike calling it
+    /// from the first instance which is a background process at this point.
     fn signal_existing_instance() {
         let event_wide: Vec<u16> =
             EVENT_NAME.encode_utf16().chain(std::iter::once(0)).collect();
@@ -96,6 +102,31 @@ mod platform {
             unsafe {
                 SetEvent(handle);
                 CloseHandle(handle);
+            }
+        }
+
+        // Directly show the first instance's window. We have foreground rights
+        // because the user just launched us, and eframe's update() may not be
+        // running while the window is hidden (no WM_PAINT → no RedrawRequested).
+        restore_first_instance_window();
+    }
+
+    /// Find the first instance's window by title and bring it to the foreground.
+    fn restore_first_instance_window() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            FindWindowW, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+        };
+
+        let title: Vec<u16> = "TaskPilot\0".encode_utf16().collect();
+        let hwnd = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
+        if !hwnd.is_null() {
+            unsafe {
+                if IsIconic(hwnd) != 0 {
+                    ShowWindow(hwnd, SW_RESTORE);
+                } else {
+                    ShowWindow(hwnd, SW_SHOW);
+                }
+                SetForegroundWindow(hwnd);
             }
         }
     }

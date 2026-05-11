@@ -15,7 +15,7 @@ use tray_icon::{
 /// `Visible(true)` when the window is hidden because `WM_PAINT` (and therefore
 /// `RedrawRequested`) is never delivered for hidden windows on Windows.
 #[cfg(windows)]
-fn restore_window_native(log_path: &PathBuf) {
+pub(crate) fn restore_window_native(log_path: &PathBuf) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         FindWindowW, SetForegroundWindow, ShowWindow, SW_SHOW,
     };
@@ -38,7 +38,7 @@ fn restore_window_native(log_path: &PathBuf) {
 }
 
 #[cfg(not(windows))]
-fn restore_window_native(_log_path: &PathBuf) {
+pub(crate) fn restore_window_native(_log_path: &PathBuf) {
     // No-op on non-Windows platforms; viewport commands handle restore.
 }
 

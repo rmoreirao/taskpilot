@@ -632,6 +632,7 @@ impl eframe::App for TaskPilotApp {
             let _ = self
                 .workspace
                 .append_debug_log("app", "Another instance requested activation; restoring window");
+            crate::tray::restore_window_native(&self.workspace.debug_log_path());
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
